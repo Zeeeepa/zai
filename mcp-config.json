@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "zai-mcp-server": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "zai-mcp-server"
+      ],
+      "env": {
+        "OPENROUTER_API_KEY": "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,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,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,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",
+        "MODEL": "google/gemini-2.0-flash-exp:free"
+      }
+    }
+  }
+}
