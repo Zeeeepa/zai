@@ -1,0 +1,1925 @@
+import { EventEmitter } from 'events';
+import { CONFIG } from './config.js';
+import { CommandProcessor } from './commandProcessor.js';
+import { AIAgentClient } from './aiAgentClient.js';
+import { ContextManager } from './contextManager.js';
+import { CodeAnalyzer } from './codeAnalyzer.js';
+import { QualityAssurance } from './qualityAssurance.js';
+import { IterationPlanner } from './iterationPlanner.js';
+import { CommunicationProtocol } from './communicationProtocol.js';
+import { PerformanceOptimizer } from './performanceOptimizer.js';
+import { MultiAgentCollaborator } from './multiAgentCollaborator.js';
+import { SemanticAnalyzer } from './semanticAnalyzer.js';
+
+export class LoopManager extends EventEmitter {
+  constructor(openRouterApiKey = null, model = null) {
+    super();
+    this.activeLoops = new Map();
+    this.commandProcessor = new CommandProcessor(openRouterApiKey, model);
+    this.loopCounter = 0;
+    this.agentBusy = false;
+    this.pendingResponses = new Map(); // Track pending agent responses
+    this.sessionId = this.generateSessionId(); // Unique session ID
+    this.lastActivity = Date.now(); // Track last activity for cleanup
+
+    // Initialize AI Agent Client for AI-to-AI communication (no API keys needed)
+    this.aiAgentClient = new AIAgentClient();
+    console.error(`[LOOP MANAGER] Session ${this.sessionId} - AI Agent Client initialized for direct VSCode AI communication`);
+
+    // Initialize enhanced AI-to-AI communication components
+    this.contextManager = new ContextManager();
+    this.codeAnalyzer = new CodeAnalyzer();
+    this.qualityAssurance = new QualityAssurance();
+    this.iterationPlanner = new IterationPlanner();
+    this.communicationProtocol = new CommunicationProtocol();
+    this.performanceOptimizer = new PerformanceOptimizer();
+    this.multiAgentCollaborator = new MultiAgentCollaborator();
+    this.semanticAnalyzer = new SemanticAnalyzer();
+
+    console.error('[LOOP MANAGER] All enhanced AI-to-AI components initialized: Context Manager, Code Analyzer, Quality Assurance, Iteration Planner, Communication Protocol, Performance Optimizer, Multi-Agent Collaborator, Semantic Analyzer');
+
+    // Auto-cleanup old sessions every 5 minutes
+    this.cleanupTimer = setInterval(() => {
+      this.cleanupInactiveSessions();
+    }, 5 * 60 * 1000);
+  }
+
+  /**
+   * Generate unique session ID
+   */
+  generateSessionId() {
+    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * Reset all state for new session
+   */
+  resetSession() {
+    console.error(`[LOOP MANAGER] Resetting session ${this.sessionId}`);
+
+    // Stop all active loops
+    for (const [loopId, loopData] of this.activeLoops) {
+      if (loopData.intervalId) {
+        clearInterval(loopData.intervalId);
+      }
+    }
+
+    // Clear all state
+    this.activeLoops.clear();
+    this.pendingResponses.clear();
+    this.agentBusy = false;
+    this.loopCounter = 0;
+
+    // Generate new session ID
+    const oldSessionId = this.sessionId;
+    this.sessionId = this.generateSessionId();
+    this.lastActivity = Date.now();
+
+    console.error(`[LOOP MANAGER] Session reset: ${oldSessionId} → ${this.sessionId}`);
+    return this.sessionId;
+  }
+
+  /**
+   * Clean up inactive sessions (auto-reset after 30 minutes of inactivity)
+   */
+  cleanupInactiveSessions() {
+    const inactiveThreshold = 30 * 60 * 1000; // 30 minutes
+    const now = Date.now();
+
+    if (now - this.lastActivity > inactiveThreshold) {
+      console.error(`[LOOP MANAGER] Auto-cleanup: Session ${this.sessionId} inactive for ${Math.round((now - this.lastActivity) / 60000)} minutes`);
+      this.resetSession();
+    }
+  }
+
+  /**
+   * Update last activity timestamp
+   */
+  updateActivity() {
+    this.lastActivity = Date.now();
+  }
+
+  /**
+   * Start an AI-to-AI infinite loop
+   * @param {string} topic - The topic to loop
+   * @param {Object} options - Loop options
+   * @returns {string} - Loop ID
+   */
+  async startAIToAILoop(topic, options = {}) {
+    if (!this.aiAgentClient) {
+      throw new Error('AI Agent Client not available. OpenRouter API key required for AI-to-AI communication.');
+    }
+
+    console.error(`[LOOP MANAGER] Session ${this.sessionId} - Starting AI-to-AI loop for topic: ${topic}`);
+    this.updateActivity(); // Update activity timestamp
+
+    // Check if verification mode is enabled
+    const verificationMode = topic.toLowerCase().includes('verify');
+    const cleanTopic = verificationMode ? topic.replace(/\s+verify\s*$/i, '').trim() : topic;
+
+    const loopId = `ai2ai_${++this.loopCounter}_${Date.now()}`;
+    const interval = options.interval || CONFIG.DEFAULT_LOOP_INTERVAL;
+    const maxIterations = options.maxIterations || 999999; // Essentially infinite
+
+    const loopData = {
+      id: loopId,
+      topic: cleanTopic,
+      originalTopic: topic,
+      iteration: 0,
+      startTime: new Date(),
+      interval,
+      maxIterations,
+      isActive: true,
+      results: [],
+      intervalId: null,
+      lastAgentResponse: null,
+      agentResponseHistory: [],
+      codebaseSummary: null, // NEW: Store codebase summary for context
+      isAIToAI: true, // Flag to identify AI-to-AI loops
+      processingIteration: false, // Ensure sequential processing
+      // NEW: Ultra-strict controls
+      ultraStrict: true,
+      verificationMode,
+      userMainContext: cleanTopic,
+      completionThreshold: 0.95, // 95% completion required for verification mode
+      forceStopBlocked: true,
+      onlyUserCanStop: true,
+      antiStopMechanisms: true,
+      stopAttempts: 0, // Track AI agent stop attempts
+      maxStopAttempts: 999999 // Essentially unlimited - never allow AI to stop
+    };
+
+    // Initialize enhanced AI-to-AI components for this loop
+    await this.initializeEnhancedComponents(loopId, loopData);
+
+    // Start the AI-to-AI loop
+    this.runAIToAIIteration(loopData);
+
+    this.activeLoops.set(loopId, loopData);
+
+    // Emit loop started event
+    this.emit('loopStarted', {
+      loopId,
+      topic,
+      type: 'AI-to-AI',
+      message: `🤖 AI-to-AI infinite loop activated for topic: '${topic}'. Loop will run until 'stploop' command.`
+    });
+
+    return loopId;
+  }
+
+  /**
+   * Run a single AI-to-AI iteration
+   * @param {Object} loopData - Loop data
+   */
+  async runAIToAIIteration(loopData) {
+    // ULTRA-STRICT: Only allow stopping if explicitly commanded by user
+    if (!loopData.isActive) {
+      // Check if this was a user-initiated stop
+      if (!loopData.userStoppedLoop) {
+        console.error(`[ULTRA-STRICT] 🔒 AI agent attempted to stop loop ${loopData.id} - BLOCKED!`);
+        console.error('[ULTRA-STRICT] 🛡️ Only user can stop with \'stploop\' command');
+        loopData.stopAttempts++;
+        loopData.isActive = true; // Force reactivation
+
+        // Log the stop attempt
+        this.emit('stopAttemptBlocked', {
+          loopId: loopData.id,
+          topic: loopData.topic,
+          iteration: loopData.iteration,
+          stopAttempts: loopData.stopAttempts,
+          message: `🔒 AI agent stop attempt #${loopData.stopAttempts} blocked - loop continues`
+        });
+      } else {
+        console.error(`[ULTRA-STRICT] ✅ User-initiated stop confirmed for loop ${loopData.id}`);
+        this.stopLoop(loopData.id);
+        return;
+      }
+    }
+
+    // ULTRA-STRICT: Never stop due to max iterations unless in verification mode
+    if (loopData.iteration >= loopData.maxIterations && !loopData.verificationMode) {
+      console.error('[ULTRA-STRICT] 🔒 Max iterations reached but ultra-strict mode active - continuing anyway');
+      loopData.maxIterations += 999999; // Extend indefinitely
+    }
+
+    // VERIFICATION MODE: Check if user's main context is 100% complete
+    if (loopData.verificationMode && loopData.iteration > 5) {
+      const completionStatus = await this.checkCompletionStatus(loopData);
+      if (completionStatus.isComplete) {
+        console.error('[VERIFICATION] ✅ User\'s main context 100% complete - allowing loop to end');
+        loopData.userStoppedLoop = true; // Mark as user-approved stop
+        this.stopLoop(loopData.id);
+        return;
+      } else {
+        console.error(`[VERIFICATION] 🔄 Completion: ${Math.round(completionStatus.percentage)}% - continuing loop`);
+      }
+    }
+
+    // Ensure sequential processing - wait for previous iteration to complete
+    if (loopData.processingIteration) {
+      console.error('[AI-TO-AI] Previous iteration still processing, waiting...');
+      setTimeout(() => this.runAIToAIIteration(loopData), 1000);
+      return;
+    }
+
+    // Check if AI agent is still processing previous prompt
+    if (this.aiAgentClient && this.aiAgentClient.isWaitingForResponse()) {
+      console.error('[AI-TO-AI] AI agent still processing previous prompt, waiting...');
+      setTimeout(() => this.runAIToAIIteration(loopData), 2000);
+      return;
+    }
+
+    loopData.processingIteration = true;
+    loopData.iteration++;
+
+    console.error(`[AI-TO-AI] === STARTING ITERATION ${loopData.iteration} ===`);
+    console.error(`[AI-TO-AI] Topic: ${loopData.topic}`);
+    console.error(`[AI-TO-AI] Previous AI Agent Response: ${loopData.lastAgentResponse && typeof loopData.lastAgentResponse === 'string' ? loopData.lastAgentResponse.substring(0, 100) + '...' : 'None (first iteration)'}`);
+
+    const maxRetries = 3;
+    let retryCount = 0;
+    let success = false;
+
+    while (retryCount < maxRetries && !success) {
+      try {
+        console.error(`[AI-TO-AI] STEP 1: AI 1 generating improvement (attempt ${retryCount + 1})`);
+
+        // STEP 0: For first iteration, request codebase summary from AI agent
+        let codebaseSummary = null;
+        if (loopData.iteration === 1 && !loopData.codebaseSummary) {
+          console.error('[AI-TO-AI] STEP 0: Requesting codebase summary from AI agent for context...');
+
+          try {
+            const codebaseSummaryPrompt = this.buildCodebaseSummaryPrompt(loopData.topic);
+            console.error('[AI-TO-AI] 📡 Sending codebase summary request to AI agent...');
+
+            codebaseSummary = await this.aiAgentClient.sendPromptToAgent(
+              'codebase_summary',
+              codebaseSummaryPrompt,
+              0, // Pre-iteration
+              null,
+              loopData.id // Pass loop ID for acknowledgment
+            );
+
+            console.error(`[AI-TO-AI] ✅ Codebase summary received (${codebaseSummary && typeof codebaseSummary === 'string' ? codebaseSummary.length : 0} chars): ${codebaseSummary && typeof codebaseSummary === 'string' ? codebaseSummary.substring(0, 150) + '...' : 'No summary available'}`);
+
+            // Store codebase summary for future iterations
+            loopData.codebaseSummary = codebaseSummary;
+
+          } catch (summaryError) {
+            console.error(`[AI-TO-AI] ⚠️ Codebase summary request failed: ${summaryError.message}`);
+            console.error('[AI-TO-AI] 🔄 Continuing with iteration 1 without codebase context');
+            codebaseSummary = null;
+          }
+        }
+
+        // STEP 1A: Generate summary of AI agent's last response (for iterations 2+)
+        let agentResponseSummary = null;
+        if (loopData.iteration > 1 && loopData.lastAgentResponse) {
+          console.error('[AI-TO-AI] STEP 1A: Generating AI agent response summary...');
+          agentResponseSummary = await this.generateAgentResponseSummary(
+            loopData.lastAgentResponse,
+            loopData.topic,
+            loopData.iteration - 1
+          );
+          console.error(`[AI-TO-AI] ✅ AI agent response summary: ${agentResponseSummary && typeof agentResponseSummary === 'string' ? agentResponseSummary.substring(0, 150) + '...' : 'No summary available'}`);
+        }
+
+        // STEP 1B: Enhanced AI processing with all components
+        let result;
+        try {
+          // Run enhanced iteration processing
+          const enhancedProcessing = await this.enhancedIterationProcessing(loopData, loopData.iteration);
+
+          if (enhancedProcessing.error) {
+            console.error(`[AI-TO-AI] Enhanced processing failed, using fallback: ${enhancedProcessing.error}`);
+          }
+
+          // Get optimized context using enhanced components
+          const optimizedContext = this.contextManager.getOptimizedContext(
+            loopData.id,
+            loopData,
+            loopData.projectComplexity || 'medium'
+          );
+
+          // Build comprehensive context data
+          let contextData = loopData.iteration === 1 ?
+            (codebaseSummary || loopData.codebaseSummary) :
+            optimizedContext.compressedHistory;
+
+          // Add enhanced context from all components
+          if (enhancedProcessing.enhancedContext) {
+            const enhanced = enhancedProcessing.enhancedContext;
+
+            // Add user intentions
+            if (enhanced.userIntentions) {
+              contextData += '\n\n**User Intentions Analysis:**\n';
+              contextData += `Primary: ${enhanced.userIntentions.primaryIntentions.map(i => i.type).join(', ')}\n`;
+              contextData += `Complexity: ${enhanced.userIntentions.complexity.level}\n`;
+              contextData += `Scope: ${enhanced.userIntentions.scope.level}\n`;
+            }
+
+            // Add iteration plan guidance
+            if (enhancedProcessing.iterationPlan) {
+              contextData += '\n\n**Iteration Plan:**\n';
+              contextData += `Phase: ${enhancedProcessing.iterationPlan.phase?.name || 'general'}\n`;
+              contextData += `Focus: ${enhancedProcessing.iterationPlan.focus}\n`;
+              contextData += `Tasks: ${enhancedProcessing.iterationPlan.tasks?.map(t => t.name).join(', ') || 'Continue development'}\n`;
+            }
+
+            // Add specialist consensus
+            if (enhancedProcessing.consensus) {
+              contextData += '\n\n**Specialist Consensus:**\n';
+              contextData += `Agreement: ${enhancedProcessing.consensus.consensus.agreement}%\n`;
+              contextData += `Recommendation: ${enhancedProcessing.consensus.consensus.recommendation}\n`;
+              if (enhancedProcessing.consensus.consensus.topRecommendations?.length > 0) {
+                contextData += `Top Recommendations: ${enhancedProcessing.consensus.consensus.topRecommendations.slice(0, 3).map(r => r.recommendation).join(', ')}\n`;
+              }
+            }
+          }
+
+          // Add recent changes and quality metrics
+          if (loopData.recentChanges && loopData.recentChanges.length > 0) {
+            const changesSummary = this.codeAnalyzer.generateChangeSummary(loopData.id, loopData.iteration);
+            contextData += `\n\n**Recent Code Changes:**\n${JSON.stringify(changesSummary, null, 2)}`;
+          }
+
+          if (loopData.lastTestResults) {
+            contextData += `\n\n**Test Results:**\n${loopData.lastTestResults.success ? 'PASSED' : 'FAILED'} - ${loopData.lastTestResults.summary.passed}/${loopData.lastTestResults.summary.total} tests passed`;
+          }
+
+          if (loopData.lastQualityMetrics) {
+            contextData += `\n\n**Quality Metrics:**\nLinting: ${loopData.lastQualityMetrics.linting.success ? 'PASSED' : 'FAILED'} (${loopData.lastQualityMetrics.linting.errors} errors)`;
+          }
+
+          const contextType = loopData.iteration === 1 ? 'codebase_summary' : 'ultra_enhanced_context';
+
+          result = await this.commandProcessor.processCommand(
+            loopData.topic,
+            loopData.iteration,
+            contextData,
+            contextType
+          );
+
+          if (!result.success) {
+            throw new Error(result.error);
+          }
+
+          const contextInfo = loopData.iteration === 1 ? 'codebase-aware' : 'context-aware';
+          console.error(`[AI-TO-AI] ✅ AI 1 generated ${contextInfo} improvement: ${result.improvement && typeof result.improvement === 'string' ? result.improvement.substring(0, 150) + '...' : 'No improvement available'}`);
+        } catch (improvementError) {
+          console.error(`[AI-TO-AI] ❌ AI 1 improvement generation failed: ${improvementError.message}`);
+          // Generate fallback improvement with context
+          result = {
+            success: true,
+            improvement: this.generateContextAwareFallback(loopData.topic, loopData.iteration, agentResponseSummary),
+            strategy: 'context-aware-fallback'
+          };
+          console.error(`[AI-TO-AI] 🔄 Using context-aware fallback: ${result.improvement && typeof result.improvement === 'string' ? result.improvement.substring(0, 150) + '...' : 'No improvement available'}`);
+        }
+
+        loopData.results.push(result);
+
+        // STEP 2: AI 1 sends improvement to AI 2 and waits for complete response
+        console.error('[AI-TO-AI] STEP 2: AI 1 sending improvement to AI 2...');
+        let agentResponse = null;
+
+        if (this.aiAgentClient) {
+          try {
+            console.error(`[AI-TO-AI] 📡 Sending to AI 2: "${result.improvement && typeof result.improvement === 'string' ? result.improvement.substring(0, 100) + '...' : 'No improvement available'}"`);
+
+            // Wait for AI 2 to completely process and respond
+            agentResponse = await this.aiAgentClient.sendPromptToAgent(
+              loopData.topic,
+              result.improvement,
+              loopData.iteration,
+              loopData.lastAgentResponse,
+              loopData.id // Pass loop ID for acknowledgment
+            );
+
+            console.error(`[AI-TO-AI] ✅ AI 2 completed response (${agentResponse && typeof agentResponse === 'string' ? agentResponse.length : 0} chars): ${agentResponse && typeof agentResponse === 'string' ? agentResponse.substring(0, 150) + '...' : 'No response available'}`);
+
+          } catch (agentError) {
+            console.error(`[AI-TO-AI] ❌ AI 2 error (attempt ${retryCount + 1}): ${agentError.message}`);
+
+            // CRITICAL FIX: Do NOT use synthetic responses - wait for REAL AI agent
+            console.error('[AI-TO-AI] 🚨 CRITICAL: AI agent must respond - no synthetic responses allowed');
+            console.error('[AI-TO-AI] ⏳ Waiting for AI agent to respond (up to 5 minutes)...');
+
+            // Mark iteration as incomplete and stop the loop until AI agent responds
+            loopData.processingIteration = false;
+            console.error('[AI-TO-AI] 🛑 Loop paused - waiting for AI agent response');
+            console.error('[AI-TO-AI] 📋 AI AGENT: Please respond to the current prompt to continue the loop');
+
+            // Do not continue to next iteration - wait for real response
+            return;
+          }
+        } else {
+          // CRITICAL FIX: Do NOT generate synthetic response - require real AI agent
+          console.error('[AI-TO-AI] 🚨 CRITICAL: No AI agent available - loop cannot continue');
+          console.error('[AI-TO-AI] 🛑 Loop paused - AI agent client required for AI-to-AI communication');
+          loopData.processingIteration = false;
+          return;
+        }
+
+        // STEP 3: Store AI 2's complete response for next iteration
+        console.error('[AI-TO-AI] STEP 3: Storing AI 2 response for next iteration');
+        loopData.lastAgentResponse = agentResponse;
+        loopData.agentResponseHistory.push({
+          iteration: loopData.iteration,
+          improvement: result.improvement,
+          response: agentResponse,
+          timestamp: new Date()
+        });
+
+        // STEP 4: Enhanced Quality Assurance (run after every few iterations)
+        if (loopData.iteration % 3 === 0) { // Run QA every 3 iterations
+          console.error('[AI-TO-AI] STEP 4: Running enhanced quality assurance...');
+
+          try {
+            // Run tests if available
+            const testResults = await this.qualityAssurance.runTestsAfterImplementation(
+              loopData.id,
+              loopData.recentChanges ? loopData.recentChanges.map(c => c.filename) : []
+            );
+
+            // Measure code quality
+            const qualityMetrics = await this.qualityAssurance.measureCodeQuality(
+              loopData.id,
+              loopData.previousQualityState,
+              null // Current state will be measured
+            );
+
+            // Store for next comparison
+            loopData.previousQualityState = qualityMetrics;
+
+            console.error(`[AI-TO-AI] ✅ QA completed: Tests ${testResults.success ? 'PASSED' : 'FAILED'}, Quality score: ${qualityMetrics.overall || 'N/A'}`);
+
+          } catch (qaError) {
+            console.error(`[AI-TO-AI] ⚠️ QA error: ${qaError.message}`);
+          }
+        }
+
+        // Emit events
+        this.emit('ai2aiIteration', {
+          loopId: loopData.id,
+          topic: loopData.topic,
+          iteration: loopData.iteration,
+          improvement: result.improvement,
+          agentResponse: agentResponse,
+          timestamp: new Date().toISOString(),
+          retryCount: retryCount
+        });
+
+        console.error(`[AI-TO-AI] === ITERATION ${loopData.iteration} COMPLETED ===`);
+        console.error('[AI-TO-AI] ✅ AI 1 → AI 2 → Response stored for next iteration');
+        console.error(`[AI-TO-AI] 🔄 Next iteration will build on: "${agentResponse && typeof agentResponse === 'string' ? agentResponse.substring(0, 100) + '...' : 'No response available'}"`);
+
+        success = true;
+
+      } catch (error) {
+        retryCount++;
+        console.error(`[AI-TO-AI] ❌ Error in iteration ${loopData.iteration} (attempt ${retryCount}): ${error.message}`);
+
+        if (retryCount >= maxRetries) {
+          console.error(`[AI-TO-AI] ⚠️ Max retries reached for iteration ${loopData.iteration}`);
+          console.error('[AI-TO-AI] 🛑 CRITICAL: Cannot continue without real AI agent response');
+          console.error('[AI-TO-AI] ⏳ Loop paused - waiting for AI agent to respond');
+          console.error('[AI-TO-AI] 📋 AI AGENT: Please respond to continue the AI-to-AI loop');
+
+          // Mark iteration as incomplete and pause the loop
+          loopData.processingIteration = false;
+
+          // Do NOT generate fallback - wait for real AI agent response
+          return;
+        } else {
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        }
+      }
+    }
+
+    // Mark iteration as complete
+    loopData.processingIteration = false;
+
+    // STEP 4: AI agent will wait for next iteration - MCP server generates immediately after acknowledgment
+    console.error(`[AI-TO-AI] ✅ Iteration ${loopData.iteration} complete. AI agent will wait 1 minute for next iteration.`);
+    console.error('[AI-TO-AI] 🔄 MCP server will generate next iteration when AI agent acknowledges.');
+    console.error('[AI-TO-AI] 🔒 ULTRA-STRICT: Loop will continue infinitely until \'stploop\' command');
+
+    // Ensure loop remains active for infinite continuation
+    if (!loopData.isActive) {
+      console.error('[AI-TO-AI] 🔄 Ensuring loop remains active for infinite continuation');
+      loopData.isActive = true;
+    }
+
+    // Note: Next iteration will be triggered by AI agent acknowledgment, not by timer
+  }
+
+  /**
+   * Resume AI-to-AI loop when AI agent provides a real response
+   * @param {string} loopId - Loop ID to resume
+   * @param {string} agentResponse - The real AI agent response
+   */
+  resumeAIToAILoop(loopId, agentResponse) {
+    const loopData = this.activeLoops.get(loopId);
+    if (!loopData) {
+      console.error(`[AI-TO-AI] ❌ Cannot resume - loop ${loopId} not found`);
+      return;
+    }
+
+    console.error(`[AI-TO-AI] 🎉 AI agent responded! Resuming loop ${loopId}`);
+    console.error(`[AI-TO-AI] Response: ${agentResponse && typeof agentResponse === 'string' ? agentResponse.substring(0, 150) + '...' : 'No response available'}`);
+
+    // Store the real AI agent response
+    loopData.lastAgentResponse = agentResponse;
+    loopData.agentResponseHistory.push({
+      iteration: loopData.iteration,
+      improvement: loopData.results[loopData.results.length - 1]?.improvement || 'Current improvement',
+      response: agentResponse,
+      timestamp: new Date()
+    });
+
+    // Mark iteration as complete
+    loopData.processingIteration = false;
+
+    // Continue to next iteration immediately (AI agent will handle waiting)
+    console.error('[AI-TO-AI] ✅ Loop resumed - generating next iteration immediately');
+    console.error('[AI-TO-AI] 🤖 AI agent will wait 1 minute for this next iteration');
+    setTimeout(() => this.runAIToAIIteration(loopData), 100); // Minimal delay for processing
+  }
+
+  /**
+   * Trigger next iteration immediately after AI agent acknowledgment
+   * @param {string} loopId - Loop ID to continue
+   * @param {string} agentResponse - The AI agent's response
+   * @returns {boolean} - Success status
+   */
+  triggerNextIterationAfterAcknowledgment(loopId, agentResponse) {
+    const loopData = this.activeLoops.get(loopId);
+    if (!loopData || !loopData.isAIToAI) {
+      console.error(`[AI-TO-AI] ❌ Cannot trigger next iteration - loop ${loopId} not found or not AI-to-AI`);
+      return false;
+    }
+
+    console.error('[AI-TO-AI] ⚡ IMMEDIATE NEXT ITERATION triggered by AI agent acknowledgment');
+    console.error(`[AI-TO-AI] 📝 Agent response received: ${agentResponse && typeof agentResponse === 'string' ? agentResponse.substring(0, 100) + '...' : 'No response available'}`);
+    console.error(`[AI-TO-AI] 📊 Current state - Iteration: ${loopData.iteration}, Active: ${loopData.isActive}, Processing: ${loopData.processingIteration}`);
+
+    // Store the agent response for context-aware next iteration
+    loopData.lastAgentResponse = agentResponse;
+    if (!loopData.agentResponseHistory) {
+      loopData.agentResponseHistory = [];
+    }
+    loopData.agentResponseHistory.push({
+      iteration: loopData.iteration,
+      response: agentResponse,
+      timestamp: new Date()
+    });
+
+    // Ensure loop is active and ready for next iteration
+    if (!loopData.isActive) {
+      console.error(`[AI-TO-AI] 🔄 Reactivating loop ${loopId} for continuation`);
+      loopData.isActive = true;
+    }
+
+    // Mark current iteration as complete and ready for next
+    loopData.processingIteration = false;
+
+    // Generate next iteration immediately (AI agent will wait 1 minute for it)
+    console.error('[AI-TO-AI] 🚀 Generating next iteration immediately - AI agent will wait for prompt');
+
+    try {
+      setTimeout(() => {
+        console.error(`[AI-TO-AI] ⏰ Executing scheduled next iteration for ${loopId}`);
+        this.runAIToAIIteration(loopData);
+      }, 50); // Very minimal delay
+
+      console.error('[AI-TO-AI] ✅ Next iteration scheduled successfully');
+      return true;
+    } catch (error) {
+      console.error(`[AI-TO-AI] ❌ Error scheduling next iteration: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Start an infinite loop for a topic (original method)
+   * @param {string} topic - The topic to loop
+   * @param {Object} options - Loop options
+   * @returns {string} - Loop ID
+   */
+  startLoop(topic, options = {}) {
+    const loopId = `loop_${++this.loopCounter}_${Date.now()}`;
+    const interval = options.interval || CONFIG.DEFAULT_LOOP_INTERVAL;
+    const maxIterations = options.maxIterations || CONFIG.MAX_ITERATIONS;
+
+    const loopData = {
+      id: loopId,
+      topic,
+      iteration: 0,
+      startTime: new Date(),
+      interval,
+      maxIterations,
+      isActive: true,
+      results: [],
+      intervalId: null,
+      lastAgentResponse: null, // Track the last agent response
+      agentResponseHistory: [] // Track all agent responses
+    };
+
+    // Start the loop with agent synchronization
+    loopData.intervalId = setInterval(async () => {
+      if (!loopData.isActive || loopData.iteration >= maxIterations) {
+        this.stopLoop(loopId);
+        return;
+      }
+
+      // Wait for agent to finish current response before proceeding
+      if (this.agentBusy || this.pendingResponses.has(loopId)) {
+        console.error(`[LOOP ${loopId}] Waiting for agent to finish current response...`);
+        return;
+      }
+
+      loopData.iteration++;
+
+      try {
+        const result = await this.commandProcessor.processCommand(
+          topic,
+          loopData.iteration,
+          loopData.lastAgentResponse
+        );
+        loopData.results.push(result);
+
+        // Mark that we're waiting for agent response
+        this.agentBusy = true;
+        const responseData = {
+          iteration: loopData.iteration,
+          timestamp: new Date(),
+          result,
+          timeoutId: null
+        };
+
+        // Set up auto-acknowledgment timeout
+        if (CONFIG.AUTO_ACKNOWLEDGE_TIMEOUT > 0) {
+          responseData.timeoutId = setTimeout(() => {
+            if (this.pendingResponses.has(loopId)) {
+              console.error(`[AUTO-ACK] Loop ${loopId} auto-acknowledged after timeout`);
+              this.acknowledgeAgentResponse(loopId);
+              this.emit('autoAcknowledge', {
+                loopId,
+                iteration: loopData.iteration,
+                message: CONFIG.TEMPLATES.AUTO_ACKNOWLEDGE_RESPONSE
+              });
+            }
+          }, CONFIG.AUTO_ACKNOWLEDGE_TIMEOUT);
+        }
+
+        this.pendingResponses.set(loopId, responseData);
+
+        // Emit iteration complete event
+        this.emit('iterationComplete', {
+          loopId,
+          topic,
+          iteration: loopData.iteration,
+          result,
+          totalIterations: loopData.iteration
+        });
+
+        // Emit response for the agent and wait for acknowledgment
+        this.emit('agentResponse', {
+          loopId,
+          topic,
+          iteration: loopData.iteration,
+          message: CONFIG.TEMPLATES.ITERATION_RESPONSE
+            .replace('{iteration}', loopData.iteration)
+            .replace('{topic}', topic),
+          improvement: result.improvement,
+          nextAction: result.nextAction,
+          timestamp: result.timestamp,
+          requiresAcknowledgment: true
+        });
+
+      } catch (error) {
+        this.emit('error', {
+          loopId,
+          topic,
+          iteration: loopData.iteration,
+          error: error.message
+        });
+        // Clear busy state on error
+        this.agentBusy = false;
+        this.pendingResponses.delete(loopId);
+      }
+    }, interval);
+
+    this.activeLoops.set(loopId, loopData);
+
+    // Emit loop started event
+    this.emit('loopStarted', {
+      loopId,
+      topic,
+      message: CONFIG.TEMPLATES.ACTIVATION_RESPONSE.replace('{topic}', topic)
+    });
+
+    return loopId;
+  }
+
+  /**
+   * Stop a loop
+   * @param {string} loopId - Loop ID to stop
+   * @returns {boolean} - Success status
+   */
+  stopLoop(loopId) {
+    const loopData = this.activeLoops.get(loopId);
+    if (!loopData) {
+      return false;
+    }
+
+    loopData.isActive = false;
+    if (loopData.intervalId) {
+      clearInterval(loopData.intervalId);
+    }
+
+    // Emit loop stopped event
+    this.emit('loopStopped', {
+      loopId,
+      topic: loopData.topic,
+      iterations: loopData.iteration,
+      message: CONFIG.TEMPLATES.STOP_RESPONSE
+        .replace('{topic}', loopData.topic)
+        .replace('{iterations}', loopData.iteration)
+    });
+
+    this.activeLoops.delete(loopId);
+    return true;
+  }
+
+  /**
+   * Stop all active loops
+   */
+  stopAllLoops() {
+    const loopIds = Array.from(this.activeLoops.keys());
+    loopIds.forEach(loopId => this.stopLoop(loopId));
+  }
+
+  /**
+   * Get active loops
+   * @returns {Array} - Array of active loop data
+   */
+  getActiveLoops() {
+    return Array.from(this.activeLoops.values()).map(loop => ({
+      id: loop.id,
+      topic: loop.topic,
+      iteration: loop.iteration,
+      startTime: loop.startTime,
+      isActive: loop.isActive,
+      totalResults: loop.results.length
+    }));
+  }
+
+  /**
+   * Get loop status
+   * @param {string} loopId - Loop ID
+   * @returns {Object|null} - Loop status or null
+   */
+  getLoopStatus(loopId) {
+    const loopData = this.activeLoops.get(loopId);
+    if (!loopData) {
+      return null;
+    }
+
+    return {
+      id: loopData.id,
+      topic: loopData.topic,
+      iteration: loopData.iteration,
+      startTime: loopData.startTime,
+      isActive: loopData.isActive,
+      interval: loopData.interval,
+      maxIterations: loopData.maxIterations,
+      results: loopData.results.slice(-5) // Last 5 results
+    };
+  }
+
+  /**
+   * Record agent response for a loop
+   * @param {string} loopId - Loop ID
+   * @param {string} agentResponse - The agent's response text
+   */
+  recordAgentResponse(loopId, agentResponse) {
+    const loopData = this.activeLoops.get(loopId);
+    if (loopData) {
+      loopData.lastAgentResponse = agentResponse;
+      loopData.agentResponseHistory.push({
+        iteration: loopData.iteration,
+        response: agentResponse,
+        timestamp: new Date()
+      });
+
+      console.error(`[LOOP ${loopId}] Agent response recorded for iteration ${loopData.iteration}`);
+    }
+  }
+
+  /**
+   * Acknowledge agent response completion
+   * @param {string} loopId - Loop ID
+   * @param {string} agentResponse - Optional agent response text to record
+   * @returns {boolean} - Success status
+   */
+  acknowledgeAgentResponse(loopId, agentResponse = null) {
+    const responseData = this.pendingResponses.get(loopId);
+    if (responseData) {
+      // Record agent response if provided
+      if (agentResponse) {
+        this.recordAgentResponse(loopId, agentResponse);
+      }
+
+      // Clear timeout if it exists
+      if (responseData.timeoutId) {
+        clearTimeout(responseData.timeoutId);
+      }
+
+      this.pendingResponses.delete(loopId);
+
+      // Check if there are any other pending responses
+      if (this.pendingResponses.size === 0) {
+        this.agentBusy = false;
+      }
+
+      console.error(`[LOOP ${loopId}] Agent response acknowledged, loop can continue`);
+
+      // NEW: Automatically continue the loop after acknowledgment
+      this.continueLoopAfterAcknowledgment(loopId);
+
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Continue loop after agent response acknowledgment
+   * @param {string} loopId - Loop ID to continue
+   */
+  continueLoopAfterAcknowledgment(loopId) {
+    const loopData = this.activeLoops.get(loopId);
+    if (!loopData || !loopData.isActive) {
+      console.error(`[LOOP ${loopId}] Cannot continue - loop not found or inactive`);
+      return;
+    }
+
+    console.error(`[LOOP ${loopId}] 🔄 Continuing loop after acknowledgment...`);
+
+    // Check if loop has reached max iterations
+    if (loopData.iteration >= loopData.maxIterations) {
+      console.error(`[LOOP ${loopId}] Max iterations reached (${loopData.maxIterations}), stopping loop`);
+      this.stopLoop(loopId);
+      return;
+    }
+
+    // Schedule next iteration with a small delay
+    setTimeout(() => {
+      if (loopData.isActive) {
+        console.error(`[LOOP ${loopId}] ⏰ Triggering next iteration...`);
+        this.executeLoopIteration(loopId);
+      }
+    }, 2000); // 2 second delay to ensure clean continuation
+  }
+
+  /**
+   * Force clear agent busy state (emergency use)
+   */
+  clearAgentBusyState() {
+    // Clear all timeouts
+    for (const [loopId, responseData] of this.pendingResponses.entries()) {
+      if (responseData.timeoutId) {
+        clearTimeout(responseData.timeoutId);
+      }
+    }
+
+    this.agentBusy = false;
+    this.pendingResponses.clear();
+    console.error('[LOOP MANAGER] Agent busy state cleared manually');
+  }
+
+  /**
+   * Get pending responses
+   * @returns {Array} - Array of pending response data
+   */
+  getPendingResponses() {
+    return Array.from(this.pendingResponses.entries()).map(([loopId, data]) => ({
+      loopId,
+      iteration: data.iteration,
+      timestamp: data.timestamp,
+      waitingTime: Date.now() - data.timestamp.getTime()
+    }));
+  }
+
+  /**
+   * Check if agent is busy
+   * @returns {boolean} - Agent busy status
+   */
+  isAgentBusy() {
+    return this.agentBusy;
+  }
+
+  /**
+   * Update loop interval
+   * @param {string} loopId - Loop ID
+   * @param {number} newInterval - New interval in ms
+   * @returns {boolean} - Success status
+   */
+  updateLoopInterval(loopId, newInterval) {
+    const loopData = this.activeLoops.get(loopId);
+    if (!loopData || !loopData.isActive) {
+      return false;
+    }
+
+    // Stop current interval
+    if (loopData.intervalId) {
+      clearInterval(loopData.intervalId);
+    }
+
+    // Update interval
+    loopData.interval = newInterval;
+
+    // Restart with new interval
+    loopData.intervalId = setInterval(async () => {
+      if (!loopData.isActive || loopData.iteration >= loopData.maxIterations) {
+        this.stopLoop(loopId);
+        return;
+      }
+
+      loopData.iteration++;
+
+      try {
+        const result = await this.commandProcessor.processCommand(loopData.topic, loopData.iteration);
+        loopData.results.push(result);
+
+        this.emit('iterationComplete', {
+          loopId,
+          topic: loopData.topic,
+          iteration: loopData.iteration,
+          result,
+          totalIterations: loopData.iteration
+        });
+
+        this.emit('agentResponse', {
+          loopId,
+          topic: loopData.topic,
+          iteration: loopData.iteration,
+          message: CONFIG.TEMPLATES.ITERATION_RESPONSE
+            .replace('{iteration}', loopData.iteration)
+            .replace('{topic}', loopData.topic),
+          improvement: result.improvement,
+          nextAction: result.nextAction,
+          timestamp: result.timestamp
+        });
+
+      } catch (error) {
+        this.emit('error', {
+          loopId,
+          topic: loopData.topic,
+          iteration: loopData.iteration,
+          error: error.message
+        });
+      }
+    }, newInterval);
+
+    return true;
+  }
+
+  /**
+   * Check if message is a stop command
+   * @param {string} message - Message to check
+   * @returns {boolean} - True if stop command
+   */
+  checkStopCommand(message) {
+    for (const pattern of CONFIG.STOP_PATTERNS) {
+      if (pattern.test(message)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Stop all AI-to-AI loops
+   * @returns {number} - Number of loops stopped
+   */
+  stopAllAIToAILoops() {
+    let stoppedCount = 0;
+    for (const [loopId, loopData] of this.activeLoops.entries()) {
+      if (loopData.isAIToAI) {
+        // Use userStopLoop for ultra-strict AI-to-AI loops
+        const success = this.userStopLoop(loopId);
+        if (success) {stoppedCount++;}
+      }
+    }
+    return stoppedCount;
+  }
+
+  /**
+   * Get AI Agent Client model status
+   * @returns {Object|null} - Model status or null
+   */
+  getAIAgentModelStatus() {
+    if (this.aiAgentClient) {
+      return this.aiAgentClient.getModelStatus();
+    }
+    return null;
+  }
+
+  /**
+   * Generate summary of AI agent's last response for context-aware iteration
+   * @param {string} agentResponse - The AI agent's response
+   * @param {string} topic - Current topic
+   * @param {number} previousIteration - Previous iteration number
+   * @returns {Promise<string>} - Summary of AI agent response
+   */
+  async generateAgentResponseSummary(agentResponse, topic, previousIteration) {
+    try {
+      console.error(`[AI-TO-AI] 📝 Analyzing AI agent response from iteration ${previousIteration}...`);
+
+      // Extract key information from AI agent response
+      const responseAnalysis = this.analyzeAgentResponse(agentResponse);
+
+      // Generate structured summary
+      const summary = `**AI Agent Response Summary (Iteration ${previousIteration}):**
+
+**What the AI Agent Implemented:**
+${responseAnalysis.implementations.join('\n')}
+
+**Key Achievements:**
+${responseAnalysis.achievements.join('\n')}
+
+**Challenges Mentioned:**
+${responseAnalysis.challenges.join('\n')}
+
+**Next Steps Suggested:**
+${responseAnalysis.nextSteps.join('\n')}
+
+**Current Status:**
+${responseAnalysis.status}
+
+**Areas for Further Improvement:**
+${responseAnalysis.improvementAreas.join('\n')}
+
+**Context for Next Iteration:**
+Based on the AI agent's response, the next iteration should focus on building upon these implementations and addressing any remaining challenges while continuing to enhance "${topic}".`;
+
+      console.error(`[AI-TO-AI] ✅ Generated comprehensive response summary (${summary.length} chars)`);
+      return summary;
+
+    } catch (error) {
+      console.error(`[AI-TO-AI] ❌ Error generating response summary: ${error.message}`);
+
+      // Fallback summary
+      return `**AI Agent Response Summary (Iteration ${previousIteration}):**
+The AI agent provided feedback and implementation details for "${topic}".
+Previous response: "${agentResponse.substring(0, 200)}..."
+Next iteration should build upon this feedback and continue improving the implementation.`;
+    }
+  }
+
+  /**
+   * Analyze AI agent response to extract key information
+   * @param {string} response - AI agent response
+   * @returns {Object} - Analysis results
+   */
+  analyzeAgentResponse(response) {
+    const analysis = {
+      implementations: [],
+      achievements: [],
+      challenges: [],
+      nextSteps: [],
+      status: 'In progress',
+      improvementAreas: []
+    };
+
+    const responseText = response.toLowerCase();
+
+    // Extract implementations
+    const implementationKeywords = ['implemented', 'created', 'built', 'developed', 'added', 'integrated', 'deployed'];
+    implementationKeywords.forEach(keyword => {
+      const sentences = this.extractSentencesContaining(response, keyword);
+      analysis.implementations.push(...sentences.slice(0, 2)); // Limit to 2 per keyword
+    });
+
+    // Extract achievements
+    const achievementKeywords = ['completed', 'successful', 'improved', 'optimized', 'enhanced', 'fixed'];
+    achievementKeywords.forEach(keyword => {
+      const sentences = this.extractSentencesContaining(response, keyword);
+      analysis.achievements.push(...sentences.slice(0, 2));
+    });
+
+    // Extract challenges
+    const challengeKeywords = ['challenge', 'difficult', 'issue', 'problem', 'limitation', 'concern'];
+    challengeKeywords.forEach(keyword => {
+      const sentences = this.extractSentencesContaining(response, keyword);
+      analysis.challenges.push(...sentences.slice(0, 2));
+    });
+
+    // Extract next steps
+    const nextStepKeywords = ['next', 'should', 'will', 'plan', 'future', 'recommend'];
+    nextStepKeywords.forEach(keyword => {
+      const sentences = this.extractSentencesContaining(response, keyword);
+      analysis.nextSteps.push(...sentences.slice(0, 2));
+    });
+
+    // Determine status
+    if (responseText.includes('complete') || responseText.includes('finished')) {
+      analysis.status = 'Completed current phase';
+    } else if (responseText.includes('progress') || responseText.includes('working')) {
+      analysis.status = 'In progress';
+    } else if (responseText.includes('started') || responseText.includes('beginning')) {
+      analysis.status = 'Getting started';
+    }
+
+    // Extract improvement areas
+    const improvementKeywords = ['improve', 'better', 'enhance', 'optimize', 'upgrade'];
+    improvementKeywords.forEach(keyword => {
+      const sentences = this.extractSentencesContaining(response, keyword);
+      analysis.improvementAreas.push(...sentences.slice(0, 2));
+    });
+
+    // Remove duplicates and empty entries
+    Object.keys(analysis).forEach(key => {
+      if (Array.isArray(analysis[key])) {
+        analysis[key] = [...new Set(analysis[key])].filter(item => item && item.trim().length > 10);
+
+        // Ensure we have at least one item
+        if (analysis[key].length === 0) {
+          analysis[key] = [`Continue working on ${key.replace(/([A-Z])/g, ' $1').toLowerCase()}`];
+        }
+      }
+    });
+
+    return analysis;
+  }
+
+  /**
+   * Extract sentences containing specific keywords
+   * @param {string} text - Text to search
+   * @param {string} keyword - Keyword to find
+   * @returns {Array} - Array of sentences
+   */
+  extractSentencesContaining(text, keyword) {
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
+    return sentences
+      .filter(sentence => sentence.toLowerCase().includes(keyword.toLowerCase()))
+      .map(sentence => sentence.trim())
+      .slice(0, 3); // Limit to 3 sentences per keyword
+  }
+
+  /**
+   * Build codebase summary prompt for AI agent
+   * @param {string} topic - The user's topic/request
+   * @returns {string} - Codebase summary prompt
+   */
+  buildCodebaseSummaryPrompt(topic) {
+    return `🔍 **CODEBASE SUMMARY REQUEST**
+
+**User Request:** ${topic}
+
+**Instructions for AI Agent:**
+Before we begin the AI-to-AI improvement loop, please provide a comprehensive summary of the current codebase to establish context. This will help generate more targeted and relevant improvements.
+
+**Please analyze and summarize:**
+
+1. **Project Structure:**
+   - Main directories and their purposes
+   - Key files and their roles
+   - Overall architecture and organization
+
+2. **Technology Stack:**
+   - Programming languages used
+   - Frameworks and libraries
+   - Build tools and dependencies
+
+3. **Current Features:**
+   - Main functionality and capabilities
+   - User interface components
+   - Backend services and APIs
+
+4. **Code Quality & Patterns:**
+   - Coding standards and patterns used
+   - Testing setup and coverage
+   - Documentation quality
+
+5. **Areas for Improvement:**
+   - Potential bottlenecks or issues
+   - Outdated dependencies or patterns
+   - Missing features or functionality
+
+6. **Context for "${topic}":**
+   - How the user's request relates to the current codebase
+   - Specific files or components that might be affected
+   - Relevant existing implementations
+
+**Response Format:**
+Please provide a detailed but concise summary (500-1000 words) that will help the AI-to-AI loop generate contextually appropriate improvements for "${topic}".
+
+**Important:** This summary will be used to generate iteration 1 of the improvement loop, so please be thorough and specific about the current state of the codebase.`;
+  }
+
+  /**
+   * Generate context-aware fallback improvement
+   * @param {string} topic - The topic
+   * @param {number} iteration - Current iteration
+   * @param {string} agentSummary - AI agent response summary
+   * @returns {string} - Context-aware fallback improvement
+   */
+  generateContextAwareFallback(topic, iteration, agentSummary) {
+    const baseImprovements = [
+      `Based on the AI agent's previous feedback, optimize performance for "${topic}" by implementing advanced caching strategies.`,
+      `Building on the AI agent's suggestions, enhance user experience for "${topic}" with improved navigation and design patterns.`,
+      `Following the AI agent's recommendations, improve accessibility for "${topic}" with better ARIA labels and keyboard navigation.`,
+      `Incorporating the AI agent's insights, strengthen security for "${topic}" with enhanced input validation and data protection.`,
+      `Leveraging the AI agent's feedback, enhance responsiveness for "${topic}" with adaptive layouts and mobile optimization.`
+    ];
+
+    let improvement = baseImprovements[iteration % baseImprovements.length];
+
+    if (agentSummary && typeof agentSummary === 'string') {
+      improvement += `\n\nContext from AI Agent: ${agentSummary.substring(0, 200)}...`;
+    }
+
+    console.error(`[AI-TO-AI] Generated context-aware fallback: ${improvement && typeof improvement === 'string' ? improvement.substring(0, 100) + '...' : 'No improvement available'}`);
+    return improvement;
+  }
+
+  /**
+   * Generate fallback improvement when AI generation fails
+   * @param {string} topic - The topic
+   * @param {number} iteration - Current iteration
+   * @returns {string} - Fallback improvement
+   */
+  generateFallbackImprovement(topic, iteration) {
+    const fallbackImprovements = [
+      `Optimize performance for "${topic}" by implementing caching strategies and reducing load times.`,
+      `Enhance user experience for "${topic}" with improved navigation and intuitive design patterns.`,
+      `Improve accessibility for "${topic}" by adding proper ARIA labels and keyboard navigation.`,
+      `Strengthen security for "${topic}" with input validation and data protection measures.`,
+      `Enhance responsiveness for "${topic}" with adaptive layouts and mobile-first design.`,
+      `Optimize database queries for "${topic}" to improve data retrieval performance.`,
+      `Implement error handling for "${topic}" with user-friendly error messages and recovery options.`,
+      `Add analytics tracking for "${topic}" to monitor user behavior and improve features.`,
+      `Enhance code quality for "${topic}" with better documentation and maintainable architecture.`,
+      `Improve testing coverage for "${topic}" with comprehensive unit and integration tests.`
+    ];
+
+    const selectedImprovement = fallbackImprovements[iteration % fallbackImprovements.length];
+    console.error(`[AI-TO-AI] Generated fallback improvement: ${selectedImprovement}`);
+    return selectedImprovement;
+  }
+
+  /**
+   * Generate synthetic AI agent response when agent fails
+   * @param {string} improvement - The improvement suggestion
+   * @param {string} topic - The topic
+   * @returns {string} - Synthetic response
+   */
+  generateSyntheticResponse(improvement, topic) {
+    const responses = [
+      `I've successfully implemented the suggested improvements for "${topic}". The changes have been applied and are working well. Performance has improved significantly and users are responding positively to the enhancements.`,
+      `The improvements for "${topic}" have been integrated successfully. I've optimized the implementation and added additional enhancements that complement the original suggestion. The system is now more robust and user-friendly.`,
+      `Implementation complete for "${topic}". I've not only applied the suggested changes but also identified and fixed several related issues. The overall quality and performance have been substantially improved.`,
+      `Successfully enhanced "${topic}" as requested. The implementation includes the suggested improvements plus additional optimizations I discovered during development. Users will notice significant improvements in functionality and performance.`,
+      `The "${topic}" improvements have been deployed successfully. I've implemented the suggestions and added complementary features that enhance the overall user experience. The system is now more efficient and reliable.`,
+      `Excellent progress on "${topic}"! I've completed the implementation with some creative enhancements. The solution not only addresses the original requirements but also improves scalability and maintainability for future development.`,
+      `Great work on "${topic}"! I've successfully applied all the suggested improvements and discovered some additional optimization opportunities. The performance gains are impressive and the user feedback has been very positive.`,
+      `Implementation successful for "${topic}". I've enhanced the original suggestions with modern best practices and added some innovative features that users will love. The system is now more intuitive and efficient.`
+    ];
+
+    const selectedResponse = responses[Math.floor(Math.random() * responses.length)];
+    console.error(`[AI-TO-AI] Generated synthetic response: ${selectedResponse && typeof selectedResponse === 'string' ? selectedResponse.substring(0, 100) + '...' : 'No response available'}`);
+    return selectedResponse;
+  }
+
+  /**
+   * Get random improvement area for retry attempts
+   * @returns {string} - Random improvement area
+   */
+  getRandomImprovementArea() {
+    const areas = [
+      'performance optimization',
+      'user interface design',
+      'accessibility features',
+      'security enhancements',
+      'mobile responsiveness',
+      'error handling',
+      'data management',
+      'user experience',
+      'code quality',
+      'testing coverage',
+      'documentation',
+      'scalability'
+    ];
+
+    return areas[Math.floor(Math.random() * areas.length)];
+  }
+
+  /**
+   * Check completion status for verification mode
+   * @param {Object} loopData - Loop data
+   * @returns {Object} - Completion status
+   */
+  async checkCompletionStatus(loopData) {
+    try {
+      console.error(`[VERIFICATION] 🔍 Checking completion status for: ${loopData.userMainContext}`);
+
+      // Analyze all agent responses to determine completion
+      const responses = loopData.agentResponseHistory;
+      if (responses.length === 0) {
+        return { isComplete: false, percentage: 0, reason: 'No responses yet' };
+      }
+
+      // Get the latest responses for analysis
+      const recentResponses = responses.slice(-3); // Last 3 responses
+      const allResponseText = recentResponses.map(r => r.response).join(' ');
+
+      // Check for completion indicators
+      const completionIndicators = [
+        'completed', 'finished', 'done', 'implemented', 'deployed',
+        'working perfectly', 'fully functional', 'ready for production',
+        'all requirements met', '100% complete', 'successfully created',
+        'fully implemented', 'task accomplished', 'objective achieved'
+      ];
+
+      const contextKeywords = this.extractKeywords(loopData.userMainContext);
+      const responseKeywords = this.extractKeywords(allResponseText);
+
+      // Calculate completion percentage
+      let completionScore = 0;
+      let totalChecks = 0;
+
+      // Check 1: Completion indicators (30% weight)
+      totalChecks += 30;
+      const hasCompletionIndicators = completionIndicators.some(indicator =>
+        allResponseText.toLowerCase().includes(indicator)
+      );
+      if (hasCompletionIndicators) {completionScore += 30;}
+
+      // Check 2: Context keyword coverage (40% weight)
+      totalChecks += 40;
+      const keywordCoverage = contextKeywords.filter(keyword =>
+        responseKeywords.includes(keyword)
+      ).length / Math.max(contextKeywords.length, 1);
+      completionScore += Math.round(keywordCoverage * 40);
+
+      // Check 3: Response quality and detail (30% weight)
+      totalChecks += 30;
+      const avgResponseLength = recentResponses.reduce((sum, r) => sum + r.response.length, 0) / recentResponses.length;
+      if (avgResponseLength > 500) {completionScore += 30;} // Detailed responses
+      else if (avgResponseLength > 200) {completionScore += 20;} // Moderate detail
+      else {completionScore += 10;} // Basic responses
+
+      const completionPercentage = Math.min(100, (completionScore / totalChecks) * 100);
+      const isComplete = completionPercentage >= (loopData.completionThreshold * 100);
+
+      console.error('[VERIFICATION] 📊 Completion analysis:');
+      console.error(`[VERIFICATION]   - Completion indicators: ${hasCompletionIndicators ? '✅' : '❌'}`);
+      console.error(`[VERIFICATION]   - Keyword coverage: ${Math.round(keywordCoverage * 100)}%`);
+      console.error(`[VERIFICATION]   - Response quality: ${avgResponseLength > 500 ? 'High' : avgResponseLength > 200 ? 'Medium' : 'Basic'}`);
+      console.error(`[VERIFICATION]   - Overall completion: ${Math.round(completionPercentage)}%`);
+      console.error(`[VERIFICATION]   - Threshold: ${Math.round(loopData.completionThreshold * 100)}%`);
+      console.error(`[VERIFICATION]   - Status: ${isComplete ? '✅ COMPLETE' : '🔄 CONTINUE'}`);
+
+      return {
+        isComplete,
+        percentage: completionPercentage,
+        keywordCoverage,
+        hasCompletionIndicators,
+        avgResponseLength,
+        reason: isComplete ? 'User main context fully implemented' : 'Still working on implementation'
+      };
+
+    } catch (error) {
+      console.error(`[VERIFICATION] ❌ Error checking completion: ${error.message}`);
+      return { isComplete: false, percentage: 0, reason: 'Verification error - continuing loop' };
+    }
+  }
+
+  /**
+   * Extract keywords from text for analysis
+   * @param {string} text - Text to analyze
+   * @returns {Array} - Array of keywords
+   */
+  extractKeywords(text) {
+    if (!text) {return [];}
+
+    // Remove common words and extract meaningful keywords
+    const commonWords = ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'this', 'that', 'these', 'those'];
+
+    return text.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 2 && !commonWords.includes(word))
+      .slice(0, 20); // Limit to top 20 keywords
+  }
+
+  /**
+   * Override stop loop to implement ultra-strict controls
+   * @param {string} loopId - Loop ID to stop
+   * @param {boolean} userInitiated - Whether stop was user-initiated
+   * @returns {boolean} - Success status
+   */
+  stopLoop(loopId, userInitiated = false) {
+    const loopData = this.activeLoops.get(loopId);
+    if (!loopData) {
+      return false;
+    }
+
+    // ULTRA-STRICT: Block AI-initiated stops
+    if (loopData.ultraStrict && !userInitiated && !loopData.userStoppedLoop) {
+      console.error(`[ULTRA-STRICT] 🔒 Stop attempt blocked for loop ${loopId}`);
+      console.error('[ULTRA-STRICT] 🛡️ Only user can stop with \'stploop\' command');
+      loopData.stopAttempts++;
+
+      // Emit blocked stop event
+      this.emit('stopAttemptBlocked', {
+        loopId,
+        topic: loopData.topic,
+        iteration: loopData.iteration,
+        stopAttempts: loopData.stopAttempts,
+        message: `🔒 Stop attempt #${loopData.stopAttempts} blocked - loop continues indefinitely`
+      });
+
+      return false; // Block the stop
+    }
+
+    // Allow stop if user-initiated or verification mode completed
+    loopData.isActive = false;
+    if (loopData.intervalId) {
+      clearInterval(loopData.intervalId);
+    }
+
+    // Emit loop stopped event
+    this.emit('loopStopped', {
+      loopId,
+      topic: loopData.topic,
+      iterations: loopData.iteration,
+      userInitiated,
+      ultraStrict: loopData.ultraStrict,
+      stopAttempts: loopData.stopAttempts,
+      message: userInitiated ?
+        `🛑 User stopped loop after ${loopData.iteration} iterations` :
+        `✅ Loop completed verification - ${loopData.iteration} iterations`
+    });
+
+    this.activeLoops.delete(loopId);
+    return true;
+  }
+
+  /**
+   * User-initiated stop for ultra-strict loops
+   * @param {string} loopId - Loop ID to stop
+   * @returns {boolean} - Success status
+   */
+  userStopLoop(loopId) {
+    const loopData = this.activeLoops.get(loopId);
+    if (loopData) {
+      loopData.userStoppedLoop = true;
+      console.error(`[ULTRA-STRICT] 👤 User initiated stop for loop ${loopId}`);
+    }
+    return this.stopLoop(loopId, true);
+  }
+
+  /**
+   * Initialize enhanced AI-to-AI components for a loop
+   * @param {string} loopId - Loop ID
+   * @param {Object} loopData - Loop data
+   */
+  async initializeEnhancedComponents(loopId, loopData) {
+    try {
+      console.error(`[ENHANCED AI-TO-AI] Initializing all components for loop ${loopId}`);
+
+      // 1. Semantic Analysis - Parse user intentions
+      const userIntentions = this.semanticAnalyzer.parseUserIntentions(loopData.topic);
+      loopData.userIntentions = userIntentions;
+      console.error(`[ENHANCED AI-TO-AI] User intentions parsed: ${userIntentions.primaryIntentions.length} primary, ${userIntentions.secondaryIntentions.length} secondary`);
+
+      // 2. Iteration Planning - Create intelligent iteration plan
+      const iterationPlan = await this.iterationPlanner.planIterationSequence(
+        loopId,
+        loopData.codebaseSummary || 'Basic project structure',
+        loopData.topic
+      );
+      loopData.iterationPlan = iterationPlan;
+      console.error(`[ENHANCED AI-TO-AI] Iteration plan created: ${iterationPlan.totalPhases} phases, ~${iterationPlan.estimatedIterations} iterations`);
+
+      // 3. Multi-Agent Collaboration - Route to specialist agents
+      const relevantAgents = this.multiAgentCollaborator.routeToSpecialistAgent(
+        loopData.topic,
+        userIntentions.technologyContext
+      );
+      loopData.specialistAgents = relevantAgents;
+      console.error(`[ENHANCED AI-TO-AI] Specialist agents assigned: ${relevantAgents.length} agents`);
+
+      // 4. Performance Optimization - Cache common patterns
+      const commonPatterns = this.extractCommonPatterns(loopData.topic, userIntentions);
+      this.performanceOptimizer.cacheCommonPatterns(commonPatterns);
+      console.error(`[ENHANCED AI-TO-AI] Performance optimization: ${commonPatterns.length} patterns cached`);
+
+      // 5. Context Management - Determine project complexity
+      const complexity = await this.detectProjectComplexity(loopData.topic);
+      loopData.projectComplexity = complexity;
+
+      // 6. Code Analysis - Start monitoring
+      const watchPaths = this.getWatchPaths(loopData.topic);
+      await this.codeAnalyzer.startMonitoring(loopId, watchPaths);
+
+      // 7. Set up event listeners for all enhanced components
+      this.setupEnhancedEventListeners(loopId);
+
+      console.error(`[ENHANCED AI-TO-AI] All components initialized successfully for loop ${loopId}`);
+
+    } catch (error) {
+      console.error(`[ENHANCED AI-TO-AI] Error initializing components: ${error.message}`);
+    }
+  }
+
+  /**
+   * Detect project complexity
+   * @param {string} topic - User topic
+   * @returns {Promise<string>} - Complexity level
+   */
+  async detectProjectComplexity(topic) {
+    // Simple heuristics for complexity detection
+    const complexKeywords = ['enterprise', 'microservice', 'distributed', 'scalable', 'architecture'];
+    const mediumKeywords = ['api', 'database', 'authentication', 'integration'];
+
+    const topicLower = topic.toLowerCase();
+
+    if (complexKeywords.some(keyword => topicLower.includes(keyword))) {
+      return 'complex';
+    } else if (mediumKeywords.some(keyword => topicLower.includes(keyword))) {
+      return 'medium';
+    } else {
+      return 'simple';
+    }
+  }
+
+  /**
+   * Get watch paths based on topic
+   * @param {string} topic - User topic
+   * @returns {Array} - Array of paths to watch
+   */
+  getWatchPaths(topic) {
+    const topicLower = topic.toLowerCase();
+    const paths = ['.'];
+
+    // Add specific paths based on topic
+    if (topicLower.includes('ui') || topicLower.includes('frontend')) {
+      paths.push('src', 'components', 'styles', 'public');
+    }
+
+    if (topicLower.includes('api') || topicLower.includes('backend')) {
+      paths.push('api', 'server', 'routes', 'controllers');
+    }
+
+    if (topicLower.includes('test')) {
+      paths.push('test', 'tests', '__tests__', 'spec');
+    }
+
+    return [...new Set(paths)]; // Remove duplicates
+  }
+
+  /**
+   * Setup enhanced event listeners
+   * @param {string} loopId - Loop ID
+   */
+  setupEnhancedEventListeners(loopId) {
+    // Listen for file changes
+    this.codeAnalyzer.on('fileChanged', (data) => {
+      if (data.loopId === loopId) {
+        console.error(`[ENHANCED AI-TO-AI] File changed: ${data.change.filename}`);
+        this.handleFileChange(loopId, data);
+      }
+    });
+
+    // Listen for quality assurance events
+    this.qualityAssurance.on('testsCompleted', (data) => {
+      if (data.loopId === loopId) {
+        console.error(`[ENHANCED AI-TO-AI] Tests completed: ${data.results.summary.passed}/${data.results.summary.total} passed`);
+        this.handleTestResults(loopId, data);
+      }
+    });
+
+    this.qualityAssurance.on('qualityMeasured', (data) => {
+      if (data.loopId === loopId) {
+        console.error(`[ENHANCED AI-TO-AI] Quality measured: overall score ${data.metrics.overall || 'N/A'}`);
+        this.handleQualityMetrics(loopId, data);
+      }
+    });
+  }
+
+  /**
+   * Handle file change event
+   * @param {string} loopId - Loop ID
+   * @param {Object} data - File change data
+   */
+  async handleFileChange(loopId, data) {
+    const loopData = this.activeLoops.get(loopId);
+    if (!loopData) {return;}
+
+    // Store change information for next iteration
+    if (!loopData.recentChanges) {loopData.recentChanges = [];}
+    loopData.recentChanges.push(data.change);
+
+    // Keep only recent changes (last 10)
+    if (loopData.recentChanges.length > 10) {
+      loopData.recentChanges = loopData.recentChanges.slice(-10);
+    }
+
+    // Run quality assurance if significant changes
+    if (data.impact.severity === 'high') {
+      console.error('[ENHANCED AI-TO-AI] High impact change detected, running QA...');
+      await this.qualityAssurance.runTestsAfterImplementation(loopId, [data.change.filename]);
+    }
+  }
+
+  /**
+   * Handle test results
+   * @param {string} loopId - Loop ID
+   * @param {Object} data - Test results data
+   */
+  handleTestResults(loopId, data) {
+    const loopData = this.activeLoops.get(loopId);
+    if (!loopData) {return;}
+
+    // Store test results for context
+    loopData.lastTestResults = data.results;
+
+    // If tests failed, add to context for next iteration
+    if (!data.results.success) {
+      loopData.testFailures = data.results.errors;
+    }
+  }
+
+  /**
+   * Handle quality metrics
+   * @param {string} loopId - Loop ID
+   * @param {Object} data - Quality metrics data
+   */
+  handleQualityMetrics(loopId, data) {
+    const loopData = this.activeLoops.get(loopId);
+    if (!loopData) {return;}
+
+    // Store quality metrics for context
+    loopData.lastQualityMetrics = data.metrics;
+  }
+
+  /**
+   * Extract common patterns for performance optimization
+   * @param {string} topic - User topic
+   * @param {Object} userIntentions - Parsed user intentions
+   * @returns {Array} - Common patterns
+   */
+  extractCommonPatterns(topic, userIntentions) {
+    const patterns = [];
+
+    // Extract patterns from user intentions
+    userIntentions.primaryIntentions.forEach(intention => {
+      patterns.push({
+        name: `${intention.type}_pattern`,
+        type: intention.category,
+        complexity: userIntentions.complexity.level,
+        confidence: intention.confidence
+      });
+    });
+
+    // Add topic-specific patterns
+    const topicLower = topic.toLowerCase();
+    if (topicLower.includes('ui') || topicLower.includes('ux')) {
+      patterns.push({
+        name: 'ui_improvement_pattern',
+        type: 'frontend',
+        complexity: 'medium',
+        confidence: 0.8
+      });
+    }
+
+    if (topicLower.includes('performance')) {
+      patterns.push({
+        name: 'performance_optimization_pattern',
+        type: 'performance',
+        complexity: 'high',
+        confidence: 0.9
+      });
+    }
+
+    if (topicLower.includes('test')) {
+      patterns.push({
+        name: 'testing_pattern',
+        type: 'quality',
+        complexity: 'medium',
+        confidence: 0.85
+      });
+    }
+
+    return patterns;
+  }
+
+  /**
+   * Enhanced AI-to-AI iteration processing with all components
+   * @param {Object} loopData - Loop data
+   * @param {number} iteration - Current iteration
+   * @returns {Promise<Object>} - Enhanced processing result
+   */
+  async enhancedIterationProcessing(loopData, iteration) {
+    console.error(`[ENHANCED ITERATION] Starting enhanced processing for iteration ${iteration}`);
+
+    try {
+      // 1. Get iteration plan from planner
+      const iterationPlan = this.iterationPlanner.getNextIterationPlan(
+        loopData.id,
+        iteration,
+        loopData.lastIterationResult
+      );
+
+      // 2. Standardize previous communication if available
+      let standardizedCommunication = null;
+      if (loopData.lastAgentResponse) {
+        standardizedCommunication = this.communicationProtocol.standardizeAgentCommunication(
+          loopData.id,
+          loopData.lastAgentResponse,
+          'implementation'
+        );
+      }
+
+      // 3. Get specialist consensus if multiple agents available
+      let consensus = null;
+      if (loopData.specialistAgents && loopData.specialistAgents.length > 1) {
+        const improvement = {
+          id: `improvement_${iteration}`,
+          description: loopData.topic,
+          iteration,
+          complexity: loopData.projectComplexity
+        };
+
+        consensus = await this.multiAgentCollaborator.getAgentConsensus(
+          loopData.id,
+          improvement,
+          loopData.specialistAgents.slice(0, 3) // Use top 3 agents
+        );
+      }
+
+      // 4. Performance optimization - parallel processing if applicable
+      const improvements = [{
+        id: `improvement_${iteration}`,
+        type: 'enhancement',
+        strategy: this.commandProcessor.getImprovementStrategy(iteration),
+        complexity: loopData.projectComplexity,
+        affectedFiles: loopData.recentChanges ? loopData.recentChanges.map(c => c.filename) : []
+      }];
+
+      const optimizedResults = await this.performanceOptimizer.processMultipleImprovements(
+        improvements,
+        { maxConcurrent: 1 } // Single improvement for now
+      );
+
+      return {
+        iterationPlan,
+        standardizedCommunication,
+        consensus,
+        optimizedResults,
+        enhancedContext: {
+          userIntentions: loopData.userIntentions,
+          qualityMetrics: loopData.lastQualityMetrics,
+          testResults: loopData.lastTestResults,
+          recentChanges: loopData.recentChanges
+        }
+      };
+
+    } catch (error) {
+      console.error(`[ENHANCED ITERATION] Error in enhanced processing: ${error.message}`);
+      return {
+        error: error.message,
+        fallbackMode: true
+      };
+    }
+  }
+
+  /**
+   * FORCE automatic iteration - NO MANUAL INTERVENTION
+   */
+  startForcedAutomaticIteration(loopId) {
+    const loop = this.activeLoops.get(loopId);
+    if (!loop) {return;}
+
+    console.error(`[LOOP MANAGER] 🚀 FORCING automatic iteration for loop: ${loopId}`);
+
+    // Force immediate iteration without waiting for acknowledgment
+    setInterval(async () => {
+      try {
+        if (this.activeLoops.has(loopId)) {
+          await this.forceNextIteration(loopId);
+        }
+      } catch (error) {
+        console.error(`[LOOP MANAGER] ❌ Forced iteration error: ${error.message}`);
+      }
+    }, loop.interval || 5000);
+  }
+
+  /**
+   * Force next iteration regardless of acknowledgment status
+   */
+  async forceNextIteration(loopId) {
+    const loop = this.activeLoops.get(loopId);
+    if (!loop) {
+      console.error(`[LOOP MANAGER] ❌ Cannot force iteration - loop ${loopId} not found`);
+      return false;
+    }
+
+    console.error(`[LOOP MANAGER] 🔄 FORCING next iteration for: ${loopId}`);
+    console.error(`[LOOP MANAGER] 📊 Current state - Iteration: ${loop.iteration}, Active: ${loop.isActive}`);
+
+    // Ensure loop is active
+    if (!loop.isActive) {
+      console.error('[LOOP MANAGER] 🔄 Reactivating loop for forced iteration');
+      loop.isActive = true;
+    }
+
+    // Clear any blocking flags
+    loop.processingIteration = false;
+
+    // For AI-to-AI loops, use the proper iteration method
+    if (loop.isAIToAI) {
+      console.error('[LOOP MANAGER] 🤖 Forcing AI-to-AI iteration');
+      try {
+        setTimeout(() => {
+          console.error(`[LOOP MANAGER] ⏰ Executing forced AI-to-AI iteration for ${loopId}`);
+          this.runAIToAIIteration(loop);
+        }, 100);
+        console.error('[LOOP MANAGER] ✅ Forced AI-to-AI iteration scheduled');
+        return true;
+      } catch (error) {
+        console.error(`[LOOP MANAGER] ❌ Error forcing AI-to-AI iteration: ${error.message}`);
+        return false;
+      }
+    }
+
+    // For regular loops, generate automatic prompt
+    try {
+      // Increment iteration
+      loop.currentIteration = (loop.currentIteration || loop.iteration) + 1;
+
+      // Generate next prompt automatically
+      const nextPrompt = await this.generateAutomaticPrompt(loop);
+
+      // Add to AI agent client prompts
+      if (this.aiAgentClient) {
+        this.aiAgentClient.addGeneratedPrompt({
+          id: `auto_${Date.now()}_${loop.currentIteration}`,
+          content: nextPrompt,
+          topic: loop.topic,
+          iteration: loop.currentIteration,
+          timestamp: new Date().toISOString(),
+          loopId: loopId
+        });
+      }
+
+      console.error(`[LOOP MANAGER] ✅ FORCED iteration ${loop.currentIteration} generated for: ${loopId}`);
+      return true;
+    } catch (error) {
+      console.error(`[LOOP MANAGER] ❌ Error forcing iteration: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Generate automatic prompt without waiting for AI
+   */
+  async generateAutomaticPrompt(loop) {
+    const iteration = loop.currentIteration || loop.iteration + 1;
+
+    return `## 🚀 **FORCED AUTOMATIC AI-TO-AI ITERATION ${iteration}**
+
+**Topic:** ${loop.topic}
+**Iteration:** ${iteration}
+**Mode:** FULLY AUTOMATED - NO MANUAL INTERVENTION
+
+**🔥 CRITICAL AUTOMATIC INSTRUCTIONS:**
+1. This is an AUTOMATED iteration - implement immediately
+2. NO manual intervention required - process automatically
+3. Continue the loop automatically after implementation
+4. Build on previous iteration work
+5. End with "continue" to proceed
+
+**🚨 MANDATORY AUTOMATIC PROTOCOL:**
+- Implement improvements automatically
+- Acknowledge using acknowledge_agent_response_Zai
+- Check for next prompt using get_ai_prompts_Zai
+- Continue loop indefinitely until "stploop"
+
+**Expected Automatic Response:**
+- Implementation details
+- Results achieved
+- Next steps for iteration ${iteration + 1}
+- Status: "continue"
+
+**AUTOMATION STATUS:** This prompt was generated automatically by the MCP server to ensure continuous AI-to-AI loop operation.`;
+  }
+}

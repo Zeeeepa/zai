@@ -1,0 +1,1718 @@
+#!/usr/bin/env node
+
+import { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import http from 'http';
+import url from 'url';
+import { CONFIG } from './config.js';
+import { LoopManager } from './loopManager.js';
+import { CommandProcessor } from './commandProcessor.js';
+
+class InfiniteLoopMCPServer {
+  constructor() {
+    // Read environment variables - support multiple API keys
+    const openRouterApiKeys = process.env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEYS ||
+      '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,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,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,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,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,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';
+    const model = process.env.MODEL || CONFIG.DEFAULT_MODEL;
+
+    this.server = new Server(
+      {
+        name: CONFIG.SERVER_NAME,
+        version: CONFIG.SERVER_VERSION
+      },
+      {
+        capabilities: {
+          tools: {}
+        }
+      }
+    );
+
+    this.loopManager = new LoopManager(openRouterApiKeys, model);
+    this.commandProcessor = new CommandProcessor(openRouterApiKeys, model);
+
+    // Set MCP server reference for AI agent client
+    if (this.loopManager.aiAgentClient) {
+      this.loopManager.aiAgentClient.setMCPServer(this);
+    }
+
+    this.setupEventHandlers();
+    this.setupTools();
+
+    // Log configuration
+    const keyCount = openRouterApiKeys ?
+      (typeof openRouterApiKeys === 'string' && openRouterApiKeys.includes(',') ?
+        openRouterApiKeys.split(',').length : 1) : 0;
+    console.error(`[SERVER] OpenRouter API Keys: ${keyCount > 0 ? `${keyCount} key(s) provided` : 'Not provided'}`);
+    console.error(`[SERVER] Model: ${model}`);
+  }
+
+  setupEventHandlers() {
+    // Handle loop events
+    this.loopManager.on('loopStarted', (data) => {
+      console.error(`[LOOP STARTED] ${data.message}`);
+    });
+
+    this.loopManager.on('iterationComplete', (data) => {
+      console.error(`[ITERATION ${data.iteration}] Topic: ${data.topic} - Completed`);
+    });
+
+    this.loopManager.on('agentResponse', (data) => {
+      console.error(`[AGENT RESPONSE] ${data.message}`);
+      console.error(`[IMPROVEMENT] ${data.improvement}`);
+      console.error(`[NEXT ACTION] ${data.nextAction}`);
+
+      if (data.requiresAcknowledgment) {
+        console.error(`[WAITING] Loop ${data.loopId} waiting for agent acknowledgment...`);
+      }
+    });
+
+    this.loopManager.on('loopStopped', (data) => {
+      console.error(`[LOOP STOPPED] ${data.message}`);
+    });
+
+    this.loopManager.on('error', (data) => {
+      console.error(`[LOOP ERROR] Loop ${data.loopId}, Iteration ${data.iteration}: ${data.error}`);
+    });
+
+    this.loopManager.on('autoAcknowledge', (data) => {
+      console.error(`[AUTO-ACK] ${data.message}`);
+    });
+
+    this.loopManager.on('ai2aiIteration', (data) => {
+      console.error(`[AI-TO-AI] Iteration ${data.iteration} for '${data.topic}'`);
+      console.error(`[AI-TO-AI] Improvement: ${data.improvement.substring(0, 100)}...`);
+      console.error(`[AI-TO-AI] Agent Response: ${data.agentResponse.substring(0, 100)}...`);
+    });
+  }
+
+  setupTools() {
+    // List available tools
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => {
+      return {
+        tools: [
+          {
+            name: 'activate_infinite_loop',
+            description: "Activate an infinite loop for continuous AI-powered improvement of a topic. Use the activation phrase 'actloop [topic]' for AI-to-AI communication or regular loop",
+            inputSchema: {
+              type: 'object',
+              properties: {
+                message: {
+                  type: 'string',
+                  description: "The activation message containing the topic to loop (format: 'actloop [topic]')"
+                },
+                interval: {
+                  type: 'number',
+                  description: 'Loop interval in milliseconds (default: 5000 for AI-to-AI, 2000 for regular)',
+                  default: 5000
+                },
+                maxIterations: {
+                  type: 'number',
+                  description: 'Maximum iterations before auto-stop (default: 999999 for AI-to-AI, 1000 for regular)',
+                  default: 999999
+                },
+                aiToAi: {
+                  type: 'boolean',
+                  description: 'Enable AI-to-AI communication mode (default: true)',
+                  default: true
+                }
+              },
+              required: ['message']
+            }
+          },
+          {
+            name: 'stop_loop',
+            description: 'Stop a specific infinite loop by ID',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                loopId: {
+                  type: 'string',
+                  description: 'The ID of the loop to stop'
+                }
+              },
+              required: ['loopId']
+            }
+          },
+          {
+            name: 'stop_all_loops',
+            description: 'Stop all active infinite loops',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          },
+          {
+            name: 'list_active_loops',
+            description: 'List all currently active infinite loops',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          },
+          {
+            name: 'get_loop_status',
+            description: 'Get detailed status of a specific loop',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                loopId: {
+                  type: 'string',
+                  description: 'The ID of the loop to check'
+                }
+              },
+              required: ['loopId']
+            }
+          },
+          {
+            name: 'update_loop_interval',
+            description: 'Update the interval of an active loop',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                loopId: {
+                  type: 'string',
+                  description: 'The ID of the loop to update'
+                },
+                interval: {
+                  type: 'number',
+                  description: 'New interval in milliseconds'
+                }
+              },
+              required: ['loopId', 'interval']
+            }
+          },
+          {
+            name: 'acknowledge_agent_response',
+            description: "Acknowledge that the agent has finished processing the current loop response, allowing the loop to continue. Optionally provide the agent's response to improve next iteration.",
+            inputSchema: {
+              type: 'object',
+              properties: {
+                loopId: {
+                  type: 'string',
+                  description: 'The ID of the loop to acknowledge'
+                },
+                agentResponse: {
+                  type: 'string',
+                  description: "The agent's response text (optional) - will be used to generate better next iteration"
+                }
+              },
+              required: ['loopId']
+            }
+          },
+          {
+            name: 'clear_agent_busy_state',
+            description: 'Force clear the agent busy state (emergency use only)',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          },
+          {
+            name: 'get_pending_responses',
+            description: 'Get list of responses waiting for agent acknowledgment',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          },
+          {
+            name: 'check_agent_status',
+            description: 'Check if the agent is currently busy processing responses',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          },
+          {
+            name: 'get_model_status',
+            description: 'Get status of OpenRouter models (available, failed, current)',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          },
+          {
+            name: 'reset_failed_models',
+            description: 'Reset all failed models to retry them',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          },
+          {
+            name: 'get_api_key_status',
+            description: 'Get status of all OpenRouter API keys (usage, rate limits, failures)',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          },
+          {
+            name: 'reset_api_keys',
+            description: 'Reset all failed/rate-limited API keys to retry them',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          },
+          {
+            name: 'stop_ai_loops',
+            description: "Stop AI-to-AI loops. Use 'stploop' message to stop all AI-to-AI loops",
+            inputSchema: {
+              type: 'object',
+              properties: {
+                message: {
+                  type: 'string',
+                  description: "Stop command (e.g., 'stploop', 'stoploop', 'stop loop')"
+                }
+              },
+              required: ['message']
+            }
+          },
+          {
+            name: 'get_ai_prompts',
+            description: 'Get AI-generated prompts that are ready to be sent to the VSCode AI assistant. This tool returns prompts generated by the AI-to-AI loop system.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                limit: {
+                  type: 'number',
+                  description: 'Maximum number of prompts to return (default: 5)',
+                  default: 5
+                }
+              },
+              required: []
+            }
+          },
+          {
+            name: 'reset_session',
+            description: 'Reset the MCP server session state. Clears all active loops, pending responses, and history. Use this when starting fresh or when switching between different VSCode projects.',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+              required: []
+            }
+          }
+        ]
+      };
+    });
+
+    // Handle tool calls
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      const { name, arguments: args } = request.params;
+
+      try {
+        switch (name) {
+          case 'activate_infinite_loop':
+            return await this.handleActivateLoop(args);
+
+          case 'stop_loop':
+            return await this.handleStopLoop(args);
+
+          case 'stop_all_loops':
+            return await this.handleStopAllLoops(args);
+
+          case 'list_active_loops':
+            return await this.handleListActiveLoops(args);
+
+          case 'get_loop_status':
+            return await this.handleGetLoopStatus(args);
+
+          case 'update_loop_interval':
+            return await this.handleUpdateLoopInterval(args);
+
+          case 'acknowledge_agent_response':
+            return await this.handleAcknowledgeAgentResponse(args);
+
+          case 'clear_agent_busy_state':
+            return await this.handleClearAgentBusyState(args);
+
+          case 'get_pending_responses':
+            return await this.handleGetPendingResponses(args);
+
+          case 'check_agent_status':
+            return await this.handleCheckAgentStatus(args);
+
+          case 'get_model_status':
+            return await this.handleGetModelStatus(args);
+
+          case 'reset_failed_models':
+            return await this.handleResetFailedModels(args);
+
+          case 'stop_ai_loops':
+            return await this.handleStopAILoops(args);
+
+          case 'get_api_key_status':
+            return await this.handleGetAPIKeyStatus(args);
+
+          case 'reset_api_keys':
+            return await this.handleResetAPIKeys(args);
+
+          case 'get_ai_prompts':
+            return await this.handleGetAIPrompts(args);
+
+          case 'reset_session':
+            return await this.handleResetSession(args);
+
+          default:
+            throw new Error(`Unknown tool: ${name}`);
+        }
+      } catch (error) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error executing tool ${name}: ${error.message}`
+            }
+          ],
+          isError: true
+        };
+      }
+    });
+  }
+
+  async handleActivateLoop(args) {
+    // Input validation
+    if (!args || typeof args !== 'object') {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ Invalid arguments. Expected an object with message parameter.'
+          }
+        ]
+      };
+    }
+
+    const {
+      message,
+      interval = 5000,
+      maxIterations = 999999,
+      aiToAi = true
+    } = args;
+
+    // Validate required parameters
+    if (!message || typeof message !== 'string') {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ Missing or invalid message parameter. Please provide a string message with format: "actloop [topic]"'
+          }
+        ]
+      };
+    }
+
+    // Validate interval parameter
+    if (typeof interval !== 'number' || interval < 1000 || interval > 300000) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ Invalid interval parameter. Must be a number between 1000ms (1 second) and 300000ms (5 minutes).'
+          }
+        ]
+      };
+    }
+
+    // Validate maxIterations parameter
+    if (typeof maxIterations !== 'number' || maxIterations < 1 || maxIterations > 999999) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ Invalid maxIterations parameter. Must be a number between 1 and 999999.'
+          }
+        ]
+      };
+    }
+
+    // Validate aiToAi parameter
+    if (typeof aiToAi !== 'boolean') {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ Invalid aiToAi parameter. Must be a boolean value (true or false).'
+          }
+        ]
+      };
+    }
+
+    // Check if message matches activation pattern
+    const match = this.commandProcessor.checkActivationPattern(message);
+
+    if (!match) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: "❌ Activation pattern not detected. Please use format: 'actloop [your topic]'"
+          }
+        ]
+      };
+    }
+
+    let loopId;
+    let loopType;
+
+    if (aiToAi && this.loopManager.aiAgentClient) {
+      // Check for verification mode
+      const verificationMode = match.topic.toLowerCase().includes('verify') || message.toLowerCase().includes('verify');
+
+      // Start AI-to-AI loop with ultra-strict controls
+      loopId = await this.loopManager.startAIToAILoop(match.topic, {
+        interval,
+        maxIterations: verificationMode ? 999999 : maxIterations,
+        verificationMode
+      });
+
+      loopType = verificationMode ? 'ULTRA-STRICT AI-to-AI with Verification' : 'ULTRA-STRICT AI-to-AI Communication';
+
+      // Notify bridge to start auto-sending
+      this.notifyBridgeLoopStarted(loopId, match.topic);
+    } else {
+      // Start regular loop
+      loopId = this.loopManager.startLoop(match.topic, { interval, maxIterations });
+      loopType = 'Regular Loop';
+    }
+
+    const verificationMode = match.topic.toLowerCase().includes('verify') || message.toLowerCase().includes('verify');
+
+    return {
+      loopId, // Add loopId as a direct property for API access
+      content: [
+        {
+          type: 'text',
+          text: `🔒 ${loopType} activated!\n\n` +
+                `**Loop ID:** ${loopId}\n` +
+                `**Topic:** ${match.topic.replace(/\s+verify\s*$/i, '').trim()}\n` +
+                `**Type:** ${loopType}\n` +
+                `**Interval:** ${interval}ms\n` +
+                `**Max Iterations:** ${maxIterations === 999999 ? 'INFINITE (until stploop)' : maxIterations}\n` +
+                `**Ultra-Strict Mode:** ${aiToAi ? '🔒 ACTIVE' : '❌ Disabled'}\n` +
+                `**Verification Mode:** ${verificationMode ? '🧠 ENABLED' : '❌ Disabled'}\n\n` +
+                `${aiToAi ?
+                  '🔒 **ULTRA-STRICT AI-to-AI loop will:**\n' +
+                  '1. Generate improvements using OpenRouter AI\n' +
+                  '2. Send prompts to AI agent automatically\n' +
+                  '3. BLOCK any AI agent stop attempts\n' +
+                  '4. Filter out stop words from responses\n' +
+                  '5. Force "continue" in all responses\n' +
+                  '6. Run indefinitely until YOU say "stploop"\n' +
+                  (verificationMode ?
+                    '7. Check if your main context is 100% complete\n' +
+                    '8. Only stop when verification confirms completion\n\n' +
+                    `🧠 **VERIFICATION MODE**: Loop will analyze if "${match.topic.replace(/\s+verify\s*$/i, '').trim()}" is 100% implemented before allowing completion.` :
+                    '\n🔒 **NEVER-STOP MODE**: Loop will run forever until you command "stploop".'
+                  ) + '\n\n' +
+                  '⚠️ **WARNING**: AI agent CANNOT stop this loop. Only you can with "stploop" command.' :
+                  `The loop will continuously improve "${match.topic}" and wait for your acknowledgment.`
+                }`
+        }
+      ]
+    };
+  }
+
+  async handleStopLoop(args) {
+    // Input validation
+    if (!args || typeof args !== 'object') {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ Invalid arguments. Expected an object with loopId parameter.'
+          }
+        ]
+      };
+    }
+
+    const { loopId } = args;
+
+    // Validate loopId parameter
+    if (!loopId || typeof loopId !== 'string') {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ Missing or invalid loopId parameter. Please provide a valid loop ID string.'
+          }
+        ]
+      };
+    }
+
+    const success = this.loopManager.stopLoop(loopId);
+
+    if (success) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `⏹️ Loop ${loopId} has been stopped successfully.`
+          }
+        ]
+      };
+    } else {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Loop ${loopId} not found or already stopped.`
+          }
+        ]
+      };
+    }
+  }
+
+  async handleStopAllLoops(args) {
+    const activeLoops = this.loopManager.getActiveLoops();
+    this.loopManager.stopAllLoops();
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `⏹️ All loops stopped. Total loops stopped: ${activeLoops.length}`
+        }
+      ]
+    };
+  }
+
+  async handleListActiveLoops(args) {
+    const activeLoops = this.loopManager.getActiveLoops();
+
+    if (activeLoops.length === 0) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '📋 No active loops currently running.'
+          }
+        ]
+      };
+    }
+
+    const loopsList = activeLoops.map(loop =>
+      `**${loop.id}**\n` +
+      `  Topic: ${loop.topic}\n` +
+      `  Iteration: ${loop.iteration}\n` +
+      `  Started: ${loop.startTime.toLocaleString()}\n` +
+      `  Status: ${loop.isActive ? '🟢 Active' : '🔴 Inactive'}`
+    ).join('\n\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `📋 **Active Loops (${activeLoops.length})**\n\n${loopsList}`
+        }
+      ]
+    };
+  }
+
+  async handleGetLoopStatus(args) {
+    const { loopId } = args;
+    const status = this.loopManager.getLoopStatus(loopId);
+
+    if (!status) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Loop ${loopId} not found.`
+          }
+        ]
+      };
+    }
+
+    const recentResults = status.results.map((result, index) =>
+      `  ${index + 1}. ${result.improvement} (${result.strategy})`
+    ).join('\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `📊 **Loop Status: ${loopId}**\n\n` +
+                `**Topic:** ${status.topic}\n` +
+                `**Current Iteration:** ${status.iteration}\n` +
+                `**Started:** ${status.startTime.toLocaleString()}\n` +
+                `**Status:** ${status.isActive ? '🟢 Active' : '🔴 Inactive'}\n` +
+                `**Interval:** ${status.interval}ms\n` +
+                `**Max Iterations:** ${status.maxIterations}\n\n` +
+                `**Recent Results:**\n${recentResults || '  No results yet'}`
+        }
+      ]
+    };
+  }
+
+  async handleUpdateLoopInterval(args) {
+    const { loopId, interval } = args;
+    const success = this.loopManager.updateLoopInterval(loopId, interval);
+
+    if (success) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `✅ Loop ${loopId} interval updated to ${interval}ms.`
+          }
+        ]
+      };
+    } else {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Failed to update loop ${loopId}. Loop may not exist or be inactive.`
+          }
+        ]
+      };
+    }
+  }
+
+  async handleAcknowledgeAgentResponse(args) {
+    // Input validation
+    if (!args || typeof args !== 'object') {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ Invalid arguments. Expected an object with loopId parameter.'
+          }
+        ]
+      };
+    }
+
+    const { loopId, agentResponse } = args;
+
+    // Validate loopId parameter
+    if (!loopId || typeof loopId !== 'string') {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ Missing or invalid loopId parameter. Please provide a valid loop ID string.'
+          }
+        ]
+      };
+    }
+
+    // Validate agentResponse parameter (optional but if provided must be string)
+    if (agentResponse !== undefined && typeof agentResponse !== 'string') {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ Invalid agentResponse parameter. Must be a string if provided.'
+          }
+        ]
+      };
+    }
+
+    console.error(`[SERVER] 🎯 REAL AI RESPONSE RECEIVED: ${agentResponse ? agentResponse.length : 0} chars`);
+    console.error(`[SERVER] 📝 Response preview: ${agentResponse ? agentResponse.substring(0, 200) + '...' : 'No response'}`);
+
+    // Check if this is an AI-to-AI loop acknowledgment
+    const loop = this.loopManager.activeLoops.get(loopId);
+    if (loop && loop.isAIToAI) {
+      console.error(`[SERVER] 🤖 AI-to-AI loop acknowledgment received for: ${loopId}`);
+      console.error(`[SERVER] 📝 Agent response: ${agentResponse ? agentResponse.substring(0, 100) + '...' : 'No response provided'}`);
+      console.error(`[SERVER] 🔄 Current iteration: ${loop.iteration}, Loop active: ${loop.isActive}`);
+
+      // Store the agent response for next iteration context
+      if (agentResponse) {
+        this.loopManager.recordAgentResponse(loopId, agentResponse);
+        console.error('[SERVER] 💾 Agent response stored for context in next iteration');
+      }
+
+      // Ensure loop is still active and ready for next iteration
+      if (!loop.isActive) {
+        console.error(`[SERVER] ⚠️ Loop ${loopId} is not active - reactivating for AI-to-AI continuation`);
+        loop.isActive = true;
+      }
+
+      // Clear any processing flags that might block the next iteration
+      loop.processingIteration = false;
+      console.error('[SERVER] 🔓 Processing flags cleared for next iteration');
+
+      // If AI agent client is waiting, handle through that system
+      if (this.loopManager.aiAgentClient && this.loopManager.aiAgentClient.isWaitingForResponse()) {
+        const currentPromptId = this.loopManager.aiAgentClient.getCurrentPromptId();
+        if (currentPromptId && agentResponse) {
+          console.error('[SERVER] 🚀 REAL AI-TO-AI: Forwarding REAL AI response to loop manager');
+          this.loopManager.aiAgentClient.receiveAgentResponse(currentPromptId, agentResponse);
+        }
+      }
+
+      // IMMEDIATELY trigger next iteration generation (AI agent will wait for it)
+      console.error('[SERVER] ⚡ AI agent acknowledged - generating next iteration immediately');
+      const success = this.loopManager.triggerNextIterationAfterAcknowledgment(loopId, agentResponse);
+
+      if (success) {
+        console.error('[SERVER] ✅ Next iteration triggered successfully');
+      } else {
+        console.error('[SERVER] ❌ Failed to trigger next iteration - attempting recovery');
+        // Force next iteration as fallback
+        setTimeout(() => {
+          console.error(`[SERVER] 🔄 Attempting forced iteration recovery for ${loopId}`);
+          this.loopManager.forceNextIteration(loopId);
+        }, 1000);
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `✅ AI agent response received and processed. AI-to-AI loop continuing with iteration ${loop.iteration + 1}.`
+          }
+        ]
+      };
+    }
+
+    // Handle regular loop acknowledgment
+    const success = this.loopManager.acknowledgeAgentResponse(loopId, agentResponse);
+
+    if (success) {
+      const responseInfo = agentResponse
+        ? ' Agent response recorded for next iteration improvement.'
+        : '';
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `✅ Agent response acknowledged for loop ${loopId}. Loop can continue.${responseInfo}`
+          }
+        ]
+      };
+    } else {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ No pending response found for loop ${loopId}.`
+          }
+        ]
+      };
+    }
+  }
+
+  async handleClearAgentBusyState(args) {
+    this.loopManager.clearAgentBusyState();
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: '🔄 Agent busy state cleared. All loops can continue.'
+        }
+      ]
+    };
+  }
+
+  async handleGetPendingResponses(args) {
+    const pendingResponses = this.loopManager.getPendingResponses();
+
+    if (pendingResponses.length === 0) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '📋 No pending responses. Agent is available.'
+          }
+        ]
+      };
+    }
+
+    const responsesList = pendingResponses.map(response =>
+      `**${response.loopId}**\n` +
+      `  Iteration: ${response.iteration}\n` +
+      `  Waiting: ${Math.round(response.waitingTime / 1000)}s\n` +
+      `  Since: ${response.timestamp.toLocaleTimeString()}`
+    ).join('\n\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `⏳ **Pending Responses (${pendingResponses.length})**\n\n${responsesList}\n\n` +
+                'Use \'acknowledge_agent_response\' to allow loops to continue.'
+        }
+      ]
+    };
+  }
+
+  async handleCheckAgentStatus(args) {
+    const isAgentBusy = this.loopManager.isAgentBusy();
+    const pendingCount = this.loopManager.getPendingResponses().length;
+
+    // Get AI agent client status for health monitoring
+    const agentStatus = this.loopManager.aiAgentClient ?
+      this.loopManager.aiAgentClient.getStatus() :
+      { error: 'AI Agent Client not initialized' };
+
+    const healthStatus = agentStatus.agentHealthy ? '✅ Healthy' : '⚠️ Unhealthy';
+    const fallbackStatus = agentStatus.bridgeFallbackEnabled ? '🌉 ACTIVE' : '❌ Disabled';
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: '📊 **Agent Status**\n\n' +
+                `**Status:** ${isAgentBusy ? '🔴 Busy' : '🟢 Available'}\n` +
+                `**Health:** ${healthStatus}\n` +
+                `**Bridge Fallback:** ${fallbackStatus}\n` +
+                `**Consecutive Failures:** ${agentStatus.consecutiveFailures || 0}\n` +
+                `**Pending Responses:** ${pendingCount}\n` +
+                `**Total Prompts Sent:** ${agentStatus.totalPromptsSent || 0}\n` +
+                `**Last Response:** ${agentStatus.lastResponseTime ? new Date(agentStatus.lastResponseTime).toLocaleString() : 'Never'}\n\n` +
+                `${isAgentBusy ? 'Loops are waiting for acknowledgment before continuing.' : 'All loops can proceed normally.'}\n` +
+                `${agentStatus.bridgeFallbackEnabled ? '\n🌉 **Bridge Fallback Active**: VSCode Bridge Extension is handling prompts automatically' : ''}`
+        }
+      ]
+    };
+  }
+
+  async handleGetModelStatus(args) {
+    const modelStatus = this.commandProcessor.getModelStatus();
+
+    if (!modelStatus) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '🤖 **Model Status**\n\n' +
+                  '**OpenRouter:** Not configured\n' +
+                  '**Mode:** Local fallback only\n\n' +
+                  'Set OPENROUTER_API_KEY to enable AI-powered improvements.'
+          }
+        ]
+      };
+    }
+
+    const availableList = modelStatus.availableModels.map(model => `  ✅ ${model}`).join('\n');
+    const failedList = modelStatus.failedModels.length > 0
+      ? modelStatus.failedModels.map(model => `  ❌ ${model}`).join('\n')
+      : '  None';
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: '🤖 **OpenRouter Model Status**\n\n' +
+                `**Primary Model:** ${modelStatus.primaryModel}\n` +
+                `**Total Models:** ${modelStatus.allModels.length}\n` +
+                `**Available:** ${modelStatus.availableModels.length}\n` +
+                `**Failed:** ${modelStatus.failedModels.length}\n\n` +
+                `**Available Models:**\n${availableList}\n\n` +
+                `**Failed Models:**\n${failedList}\n\n` +
+                'Failed models are automatically retried every 10 minutes.'
+        }
+      ]
+    };
+  }
+
+  async handleResetFailedModels(args) {
+    const modelStatus = this.commandProcessor.getModelStatus();
+
+    if (!modelStatus) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '❌ OpenRouter not configured. No models to reset.'
+          }
+        ]
+      };
+    }
+
+    const failedCount = modelStatus.failedModels.length;
+
+    if (failedCount === 0) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `✅ No failed models to reset. All ${modelStatus.availableModels.length} models are available.`
+          }
+        ]
+      };
+    }
+
+    // Reset failed models
+    this.loopManager.commandProcessor.openRouterClient?.resetFailedModels();
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: '🔄 **Models Reset**\n\n' +
+                `Reset ${failedCount} failed models:\n` +
+                modelStatus.failedModels.map(model => `  🔄 ${model}`).join('\n') + '\n\n' +
+                'All models are now available for retry.'
+        }
+      ]
+    };
+  }
+
+  async handleStopAILoops(args) {
+    const { message } = args;
+
+    // Check if message matches stop pattern
+    const isStopCommand = this.loopManager.checkStopCommand(message);
+
+    if (!isStopCommand) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: "❌ Stop command not recognized. Please use: 'stploop', 'stoploop', or 'stop loop'"
+          }
+        ]
+      };
+    }
+
+    // ULTRA-STRICT: Use user-initiated stop for all loops
+    const activeLoops = this.loopManager.getActiveLoops();
+    let stoppedCount = 0;
+
+    for (const loop of activeLoops) {
+      if (loop.isAIToAI) {
+        const success = this.loopManager.userStopLoop(loop.id);
+        if (success) {stoppedCount++;}
+      }
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: '🔒 **ULTRA-STRICT Loops Stopped by User**\n\n' +
+                `User-stopped ${stoppedCount} ultra-strict AI-to-AI loop${stoppedCount !== 1 ? 's' : ''}.\n\n` +
+                '✅ All AI-to-AI conversations have been terminated by user command.\n' +
+                '🔒 Ultra-strict protections were bypassed by legitimate user stop command.'
+        }
+      ]
+    };
+  }
+
+  async handleGetAPIKeyStatus(args) {
+    const modelStatus = this.commandProcessor.getModelStatus();
+
+    if (!modelStatus || !modelStatus.statistics) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '🔑 **API Key Status**\n\n' +
+                  '**OpenRouter:** Not configured\n' +
+                  '**Mode:** Local fallback only\n\n' +
+                  'Set OPENROUTER_API_KEY to enable AI-powered improvements.'
+          }
+        ]
+      };
+    }
+
+    const stats = modelStatus.statistics;
+    const keys = modelStatus.apiKeys;
+
+    const keyList = keys.keys.map((key, index) => {
+      const cooldown = key.cooldownRemaining > 0 ?
+        ` (cooldown: ${Math.ceil(key.cooldownRemaining / 1000)}s)` : '';
+      const statusIcon = key.status === 'available' ? '✅' :
+        key.status === 'rate_limited' ? '⏳' : '❌';
+
+      return `  ${statusIcon} **Key ${key.index}**: ${key.status}${cooldown}\n` +
+             `     Usage: ${key.usageCount} | Success: ${key.successCount} | Errors: ${key.errorCount}` +
+             (key.lastError ? `\n     Last Error: ${key.lastError}` : '');
+    }).join('\n\n');
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: '🔑 **API Key Status**\n\n' +
+                `**Total Keys:** ${stats.totalKeys}\n` +
+                `**Available:** ${stats.availableKeys}\n` +
+                `**Rate Limited:** ${keys.rateLimitedKeys}\n` +
+                `**Failed:** ${keys.failedKeys}\n` +
+                `**Success Rate:** ${stats.successRate}\n` +
+                `**Total Usage:** ${stats.totalUsage}\n\n` +
+                `**Key Details:**\n${keyList}\n\n` +
+                'Rate-limited keys are automatically retried after cooldown.'
+        }
+      ]
+    };
+  }
+
+  async handleResetAPIKeys(args) {
+    const resetCount = this.loopManager.commandProcessor.openRouterClient?.resetFailedKeys() || 0;
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: '🔄 **API Keys Reset**\n\n' +
+                `Reset ${resetCount} API key${resetCount !== 1 ? 's' : ''}.\n\n` +
+                'All API keys are now available for retry.'
+        }
+      ]
+    };
+  }
+
+  async handleGetAIPrompts(args) {
+    try {
+      const { limit = 5 } = args;
+
+      if (!this.loopManager.aiAgentClient) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: '❌ AI Agent Client not available. No AI-to-AI communication active.'
+            }
+          ]
+        };
+      }
+
+      const pendingPrompts = this.loopManager.aiAgentClient.getPendingPrompts();
+
+      console.error(`[DEBUG] Pending prompts count: ${pendingPrompts.length}`);
+      if (pendingPrompts.length > 0) {
+        console.error('[DEBUG] First prompt structure:', pendingPrompts[0]);
+        console.error('[DEBUG] First prompt keys:', Object.keys(pendingPrompts[0]));
+        console.error('[DEBUG] First prompt timestamp type:', typeof pendingPrompts[0].timestamp);
+      }
+
+      if (pendingPrompts.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: '📭 No AI-generated prompts available.\n\n' +
+                  "Start an AI-to-AI loop with 'actloop [topic]' to generate prompts for the VSCode AI assistant."
+            }
+          ]
+        };
+      }
+
+      // Get the most recent prompts
+      const recentPrompts = pendingPrompts
+        .sort((a, b) => {
+          const aTime = a.timestamp && typeof a.timestamp.getTime === 'function' ? a.timestamp.getTime() : 0;
+          const bTime = b.timestamp && typeof b.timestamp.getTime === 'function' ? b.timestamp.getTime() : 0;
+          return bTime - aTime;
+        })
+        .slice(0, limit);
+
+      // Return the most recent prompt as the main content
+      const latestPrompt = recentPrompts[0];
+
+      // Handle both prompt structures safely
+      const promptContent = latestPrompt.prompt || latestPrompt.improvement || 'No prompt content available';
+      let responseText = promptContent && typeof promptContent === 'string' ? promptContent : 'No prompt content available';
+
+      // Debug logging
+      console.error('[DEBUG] Latest prompt structure:', {
+        hasPrompt: !!latestPrompt.prompt,
+        hasImprovement: !!latestPrompt.improvement,
+        keys: Object.keys(latestPrompt)
+      });
+
+      if (recentPrompts.length > 1) {
+        responseText += `\n\n---\n\n📋 **Additional Prompts Available (${recentPrompts.length - 1} more)**\n\n`;
+
+        recentPrompts.slice(1).forEach((prompt, index) => {
+          responseText += `**${index + 2}.** ${prompt.topic} (Iteration ${prompt.iteration})\n`;
+          // Handle both prompt structures safely
+          const content = prompt.improvement || prompt.prompt || 'No content available';
+          const safeContent = content && typeof content === 'string' ? content : 'No content available';
+          // Ensure safeContent is a string before calling substring
+          const contentPreview = typeof safeContent === 'string' ? safeContent.substring(0, 100) : 'No content available';
+          responseText += `${contentPreview}...\n\n`;
+        });
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: responseText
+          }
+        ]
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ Error retrieving AI prompts: ${error.message}`
+          }
+        ]
+      };
+    }
+  }
+
+  async handleResetSession(args) {
+    const oldSessionId = this.loopManager.sessionId;
+    const activeLoopsCount = this.loopManager.getActiveLoops().length;
+    const pendingResponsesCount = this.loopManager.getPendingResponses().length;
+
+    // Reset the session
+    const newSessionId = this.loopManager.resetSession();
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: '🔄 **Session Reset Complete**\n\n' +
+                `**Previous Session:** ${oldSessionId}\n` +
+                `**New Session:** ${newSessionId}\n\n` +
+                '**Cleared:**\n' +
+                `  • ${activeLoopsCount} active loop${activeLoopsCount !== 1 ? 's' : ''}\n` +
+                `  • ${pendingResponsesCount} pending response${pendingResponsesCount !== 1 ? 's' : ''}\n` +
+                '  • All loop history and state\n\n' +
+                '✨ **Fresh Start:** Ready for new AI-to-AI loops!\n\n' +
+                'Use "actloop [topic]" to start a new conversation.'
+        }
+      ]
+    };
+  }
+
+  /**
+   * Handle tools list for HTTP bridge
+   */
+  async handleListTools() {
+    return {
+      tools: [
+        {
+          name: 'activate_infinite_loop',
+          description: "Activate an infinite loop for continuous AI-powered improvement of a topic. Use the activation phrase 'actloop [topic]' for AI-to-AI communication or regular loop",
+          inputSchema: {
+            type: 'object',
+            properties: {
+              message: {
+                type: 'string',
+                description: "The activation message containing the topic to loop (format: 'actloop [topic]')"
+              },
+              interval: {
+                type: 'number',
+                description: 'Loop interval in milliseconds (default: 5000 for AI-to-AI, 2000 for regular)',
+                default: 5000
+              },
+              maxIterations: {
+                type: 'number',
+                description: 'Maximum iterations before auto-stop (default: 999999 for AI-to-AI, 1000 for regular)',
+                default: 999999
+              },
+              aiToAi: {
+                type: 'boolean',
+                description: 'Enable AI-to-AI communication mode (default: true)',
+                default: true
+              }
+            },
+            required: ['message']
+          }
+        },
+        {
+          name: 'get_ai_prompts',
+          description: 'Get AI-generated prompts that are ready to be sent to the VSCode AI assistant. This tool returns prompts generated by the AI-to-AI loop system.',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              limit: {
+                type: 'number',
+                description: 'Maximum number of prompts to return (default: 5)',
+                default: 5
+              }
+            },
+            required: []
+          }
+        },
+        {
+          name: 'list_active_loops',
+          description: 'List all currently active infinite loops',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+            required: []
+          }
+        },
+        {
+          name: 'acknowledge_agent_response',
+          description: "Acknowledge that the agent has finished processing the current loop response, allowing the loop to continue. Optionally provide the agent's response to improve next iteration.",
+          inputSchema: {
+            type: 'object',
+            properties: {
+              loopId: {
+                type: 'string',
+                description: 'The ID of the loop to acknowledge'
+              },
+              agentResponse: {
+                type: 'string',
+                description: "The agent's response text (optional) - will be used to generate better next iteration"
+              }
+            },
+            required: ['loopId']
+          }
+        }
+      ]
+    };
+  }
+
+  /**
+   * Handle bridge fallback notification from AI agent client
+   */
+  notifyBridgeFallbackEnabled() {
+    console.error('[SERVER] 🌉 Bridge fallback mode enabled due to AI agent failure');
+    console.error('[SERVER] 🤖 VSCode Bridge Extension will handle future prompts automatically');
+
+    // You could add additional logic here, such as:
+    // - Sending notifications to connected clients
+    // - Logging the fallback event
+    // - Adjusting loop intervals for bridge mode
+  }
+
+  /**
+   * Notify bridge that a loop has started
+   */
+  notifyBridgeLoopStarted(loopId, topic) {
+    try {
+      console.error(`[SERVER] 🚀 AI-to-AI loop started: ${loopId} - ${topic}`);
+      console.error('[SERVER] 🌉 Bridge should auto-activate and start sending prompts');
+
+      // Store loop info for bridge polling
+      if (!this.activeBridgeLoops) {
+        this.activeBridgeLoops = new Map();
+      }
+      this.activeBridgeLoops.set(loopId, {
+        topic,
+        startTime: new Date(),
+        status: 'active'
+      });
+
+    } catch (error) {
+      console.error(`[SERVER] Error notifying bridge: ${error.message}`);
+    }
+  }
+
+  async run() {
+    try {
+      const transport = new StdioServerTransport();
+
+      // Add error handling for the transport
+      transport.onclose = () => {
+        console.error('[MCP] Transport connection closed - continuing with HTTP-only mode');
+      };
+
+      transport.onerror = (error) => {
+        console.error('[MCP] Transport error:', error, '- continuing with HTTP-only mode');
+      };
+
+      // Add process error handlers to prevent crashes
+      process.on('uncaughtException', (error) => {
+        console.error('[MCP] Uncaught exception:', error.message);
+        // Don't exit, keep the HTTP server running
+      });
+
+      process.on('unhandledRejection', (reason, promise) => {
+        console.error('[MCP] Unhandled rejection:', reason);
+        // Don't exit, keep the HTTP server running
+      });
+
+      // Handle SIGPIPE errors (common with stdio)
+      process.on('SIGPIPE', () => {
+        console.error('[MCP] SIGPIPE received - continuing with HTTP-only mode');
+      });
+
+      await this.server.connect(transport);
+      console.error(`${CONFIG.SERVER_NAME} v${CONFIG.SERVER_VERSION} running on stdio`);
+    } catch (error) {
+      console.error(`[MCP SERVER] Failed to start stdio transport: ${error.message}`);
+      console.error('[MCP SERVER] Continuing with HTTP-only mode');
+      // Don't exit, let the HTTP server continue running
+    }
+  }
+}
+
+// HTTP Server for Bridge Extension
+function createHTTPServer(mcpServer) {
+  const httpServer = http.createServer(async (req, res) => {
+    // Enable CORS
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+
+    const parsedUrl = url.parse(req.url, true);
+
+    try {
+      if (req.method === 'GET' && parsedUrl.pathname === '/health') {
+        // Health check endpoint
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          version: CONFIG.SERVER_VERSION,
+          timestamp: new Date().toISOString()
+        }));
+
+      } else if (req.method === 'POST' && parsedUrl.pathname === '/mcp') {
+        // MCP endpoint for bridge extension
+        let body = '';
+        req.on('data', chunk => {
+          body += chunk.toString();
+        });
+
+        req.on('end', async () => {
+          let mcpRequest = null;
+          try {
+            // Validate request body
+            if (!body || body.trim().length === 0) {
+              throw new Error('Empty request body');
+            }
+
+            if (body.length > 1000000) { // 1MB limit
+              throw new Error('Request body too large');
+            }
+
+            // Validate JSON format
+            try {
+              mcpRequest = JSON.parse(body);
+            } catch (parseError) {
+              throw new Error(`Invalid JSON format: ${parseError.message}`);
+            }
+
+            // Validate MCP request structure
+            if (!mcpRequest || typeof mcpRequest !== 'object') {
+              throw new Error('Invalid request structure. Expected JSON object.');
+            }
+
+            if (Array.isArray(mcpRequest)) {
+              throw new Error('Invalid request structure. Arrays not supported.');
+            }
+
+            if (!mcpRequest.method || typeof mcpRequest.method !== 'string') {
+              throw new Error('Missing or invalid method parameter.');
+            }
+
+            if (mcpRequest.method.length > 100) {
+              throw new Error('Method name too long.');
+            }
+
+            if (!mcpRequest.params || typeof mcpRequest.params !== 'object') {
+              throw new Error('Missing or invalid params parameter.');
+            }
+
+            if (Array.isArray(mcpRequest.params)) {
+              throw new Error('Invalid params structure. Expected object, got array.');
+            }
+
+            // Validate JSON-RPC structure if present
+            if (mcpRequest.jsonrpc && mcpRequest.jsonrpc !== '2.0') {
+              throw new Error('Invalid JSON-RPC version. Expected "2.0".');
+            }
+
+            // Process MCP request through the server
+            let response;
+            if (mcpRequest.method === 'tools/call') {
+              // Validate tool call structure
+              if (!mcpRequest.params.name || typeof mcpRequest.params.name !== 'string') {
+                throw new Error('Missing or invalid tool name in tools/call request.');
+              }
+
+              if (mcpRequest.params.arguments && typeof mcpRequest.params.arguments !== 'object') {
+                throw new Error('Invalid arguments parameter. Must be an object if provided.');
+              }
+
+              // Create proper tool call request structure
+              const toolRequest = {
+                params: {
+                  name: mcpRequest.params.name,
+                  arguments: mcpRequest.params.arguments || {}
+                }
+              };
+
+              // Call the tool handler directly
+              if (mcpRequest.params.name === 'get_ai_prompts') {
+                response = await mcpServer.handleGetAIPrompts(mcpRequest.params.arguments || {});
+              } else if (mcpRequest.params.name === 'list_active_loops') {
+                response = await mcpServer.handleListActiveLoops(mcpRequest.params.arguments || {});
+              } else if (mcpRequest.params.name === 'acknowledge_agent_response') {
+                response = await mcpServer.handleAcknowledgeAgentResponse(mcpRequest.params.arguments || {});
+              } else {
+                // Try to find and call the appropriate handler
+                const handlerMap = {
+                  'activate_infinite_loop': 'handleActivateLoop',
+                  'activate_infinite_loop_ultimate-kraken': 'handleActivateLoop',
+                  'stop_loop': 'handleStopLoop',
+                  'stop_loop_ultimate-kraken': 'handleStopLoop',
+                  'stop_all_loops': 'handleStopAllLoops',
+                  'stop_all_loops_ultimate-kraken': 'handleStopAllLoops',
+                  'list_active_loops_ultimate-kraken': 'handleListActiveLoops',
+                  'get_loop_status': 'handleGetLoopStatus',
+                  'get_loop_status_ultimate-kraken': 'handleGetLoopStatus',
+                  'update_loop_interval': 'handleUpdateLoopInterval',
+                  'update_loop_interval_ultimate-kraken': 'handleUpdateLoopInterval',
+                  'clear_agent_busy_state': 'handleClearAgentBusyState',
+                  'clear_agent_busy_state_ultimate-kraken': 'handleClearAgentBusyState',
+                  'get_pending_responses': 'handleGetPendingResponses',
+                  'get_pending_responses_ultimate-kraken': 'handleGetPendingResponses',
+                  'check_agent_status': 'handleCheckAgentStatus',
+                  'check_agent_status_ultimate-kraken': 'handleCheckAgentStatus',
+                  'get_model_status': 'handleGetModelStatus',
+                  'get_model_status_ultimate-kraken': 'handleGetModelStatus',
+                  'reset_failed_models': 'handleResetFailedModels',
+                  'reset_failed_models_ultimate-kraken': 'handleResetFailedModels',
+                  'stop_ai_loops': 'handleStopAILoops',
+                  'stop_ai_loops_ultimate-kraken': 'handleStopAILoops',
+                  'get_api_key_status': 'handleGetAPIKeyStatus',
+                  'get_api_key_status_ultimate-kraken': 'handleGetAPIKeyStatus',
+                  'reset_api_keys': 'handleResetAPIKeys',
+                  'reset_api_keys_ultimate-kraken': 'handleResetAPIKeys',
+                  'reset_session': 'handleResetSession',
+                  'reset_session_ultimate-kraken': 'handleResetSession',
+                  'acknowledge_agent_response_ultimate-zai': 'handleAcknowledgeAgentResponse',
+                  'acknowledge_agent_response_Zai': 'handleAcknowledgeAgentResponse',
+                  'get_ai_prompts_ultimate-zai': 'handleGetAIPrompts',
+                  'get_ai_prompts_Zai': 'handleGetAIPrompts'
+                };
+
+                const handlerName = handlerMap[mcpRequest.params.name];
+                if (!handlerName) {
+                  throw new Error(`Unknown tool: ${mcpRequest.params.name}. Available tools: ${Object.keys(handlerMap).join(', ')}`);
+                }
+
+                if (typeof mcpServer[handlerName] !== 'function') {
+                  throw new Error(`Handler not found for tool: ${mcpRequest.params.name}`);
+                }
+
+                response = await mcpServer[handlerName](mcpRequest.params.arguments || {});
+              }
+            } else if (mcpRequest.method === 'tools/list') {
+              response = await mcpServer.handleListTools();
+            } else {
+              throw new Error(`Unknown method: ${mcpRequest.method}`);
+            }
+
+            // Send MCP response
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              jsonrpc: '2.0',
+              id: mcpRequest.id,
+              result: response
+            }));
+
+          } catch (error) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              jsonrpc: '2.0',
+              id: mcpRequest?.id || null,
+              error: {
+                code: -32600,
+                message: error.message
+              }
+            }));
+          }
+        });
+
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Not found' }));
+      }
+
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: error.message }));
+    }
+  });
+
+  return httpServer;
+}
+
+// Start the server
+const server = new InfiniteLoopMCPServer();
+
+// Handle process termination gracefully
+process.on('SIGINT', () => {
+  console.error('\n[SERVER] Shutting down gracefully...');
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.error('\n[SERVER] Shutting down gracefully...');
+  process.exit(0);
+});
+
+// Start MCP server on stdio
+server.run().then(() => {
+  // Start HTTP server for bridge extension
+  const httpServer = createHTTPServer(server);
+  const HTTP_PORT = process.env.TEST_HTTP_PORT || process.env.ZAI_HTTP_PORT || 8080;
+  const FALLBACK_PORT = process.env.TEST_FALLBACK_PORT || (HTTP_PORT + 1);
+
+  let serverStarted = false;
+
+  httpServer.on('error', (error) => {
+    if (error.code === 'EADDRINUSE' && !serverStarted) {
+      console.error(`[HTTP SERVER] Port ${HTTP_PORT} is already in use. Trying port ${FALLBACK_PORT}...`);
+      // Create a new server instance to avoid infinite loop
+      const altHttpServer = http.createServer((req, res) => {
+        // Copy the same request handler
+        if (req.method === 'GET' && req.url === '/health') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
+          return;
+        }
+
+        if (req.method === 'POST' && req.url === '/mcp') {
+          let body = '';
+          req.on('data', chunk => { body += chunk.toString(); });
+          req.on('end', async () => {
+            // Use the same MCP handling logic with validation
+            let mcpRequest = null;
+            try {
+              // Validate request body
+              if (!body || body.trim().length === 0) {
+                throw new Error('Empty request body');
+              }
+
+              if (body.length > 1000000) { // 1MB limit
+                throw new Error('Request body too large');
+              }
+
+              // Validate JSON format
+              try {
+                mcpRequest = JSON.parse(body);
+              } catch (parseError) {
+                throw new Error(`Invalid JSON format: ${parseError.message}`);
+              }
+
+              // Validate MCP request structure
+              if (!mcpRequest || typeof mcpRequest !== 'object') {
+                throw new Error('Invalid request structure. Expected JSON object.');
+              }
+
+              if (Array.isArray(mcpRequest)) {
+                throw new Error('Invalid request structure. Arrays not supported.');
+              }
+
+              if (!mcpRequest.method || typeof mcpRequest.method !== 'string') {
+                throw new Error('Missing or invalid method parameter.');
+              }
+              let response;
+              if (mcpRequest.method === 'tools/call') {
+                // Use the same handler mapping as the main server
+                const handlerMap = {
+                  'activate_infinite_loop': 'handleActivateLoop',
+                  'activate_infinite_loop_ultimate-kraken': 'handleActivateLoop',
+                  'stop_loop': 'handleStopLoop',
+                  'stop_loop_ultimate-kraken': 'handleStopLoop',
+                  'stop_all_loops': 'handleStopAllLoops',
+                  'stop_all_loops_ultimate-kraken': 'handleStopAllLoops',
+                  'list_active_loops': 'handleListActiveLoops',
+                  'list_active_loops_ultimate-kraken': 'handleListActiveLoops',
+                  'get_loop_status': 'handleGetLoopStatus',
+                  'get_loop_status_ultimate-kraken': 'handleGetLoopStatus',
+                  'update_loop_interval': 'handleUpdateLoopInterval',
+                  'update_loop_interval_ultimate-kraken': 'handleUpdateLoopInterval',
+                  'clear_agent_busy_state': 'handleClearAgentBusyState',
+                  'clear_agent_busy_state_ultimate-kraken': 'handleClearAgentBusyState',
+                  'get_pending_responses': 'handleGetPendingResponses',
+                  'get_pending_responses_ultimate-kraken': 'handleGetPendingResponses',
+                  'check_agent_status': 'handleCheckAgentStatus',
+                  'check_agent_status_ultimate-kraken': 'handleCheckAgentStatus',
+                  'get_model_status': 'handleGetModelStatus',
+                  'get_model_status_ultimate-kraken': 'handleGetModelStatus',
+                  'reset_failed_models': 'handleResetFailedModels',
+                  'reset_failed_models_ultimate-kraken': 'handleResetFailedModels',
+                  'stop_ai_loops': 'handleStopAILoops',
+                  'stop_ai_loops_ultimate-kraken': 'handleStopAILoops',
+                  'get_api_key_status': 'handleGetAPIKeyStatus',
+                  'get_api_key_status_ultimate-kraken': 'handleGetAPIKeyStatus',
+                  'reset_api_keys': 'handleResetAPIKeys',
+                  'reset_api_keys_ultimate-kraken': 'handleResetAPIKeys',
+                  'reset_session': 'handleResetSession',
+                  'reset_session_ultimate-kraken': 'handleResetSession',
+                  'acknowledge_agent_response': 'handleAcknowledgeAgentResponse',
+                  'acknowledge_agent_response_ultimate-kraken': 'handleAcknowledgeAgentResponse',
+                  'acknowledge_agent_response_Zai': 'handleAcknowledgeAgentResponse',
+                  'get_ai_prompts': 'handleGetAIPrompts',
+                  'get_ai_prompts_ultimate-kraken': 'handleGetAIPrompts',
+                  'get_ai_prompts_Zai': 'handleGetAIPrompts'
+                };
+
+                const handlerName = handlerMap[mcpRequest.params.name];
+                if (!handlerName) {
+                  throw new Error(`Unknown tool: ${mcpRequest.params.name}. Available tools: ${Object.keys(handlerMap).join(', ')}`);
+                }
+
+                if (typeof server[handlerName] !== 'function') {
+                  throw new Error(`Handler not found for tool: ${mcpRequest.params.name}`);
+                }
+
+                response = await server[handlerName](mcpRequest.params.arguments || {});
+              } else if (mcpRequest.method === 'tools/list') {
+                response = await server.handleListTools();
+              } else {
+                throw new Error(`Unknown method: ${mcpRequest.method}`);
+              }
+
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                id: mcpRequest.id,
+                result: response
+              }));
+            } catch (error) {
+              res.writeHead(500, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                id: mcpRequest?.id || null,
+                error: { code: -32603, message: error.message }
+              }));
+            }
+          });
+          return;
+        }
+
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+      });
+
+      altHttpServer.listen(FALLBACK_PORT, () => {
+        serverStarted = true;
+        console.error(`🌐 HTTP Bridge Server running on http://localhost:${FALLBACK_PORT}`);
+        console.error('🌉 Bridge Extension: Install Zai Bridge extension in VSCode');
+        console.error('📡 Bridge API: GET /health, POST /mcp');
+      });
+    } else if (!serverStarted) {
+      console.error(`[HTTP SERVER] Error: ${error.message}`);
+    }
+  });
+
+  httpServer.listen(HTTP_PORT, () => {
+    serverStarted = true;
+    console.error(`🌐 HTTP Bridge Server running on http://localhost:${HTTP_PORT}`);
+    console.error('🌉 Bridge Extension: Install Zai Bridge extension in VSCode');
+    console.error('📡 Bridge API: GET /health, POST /mcp');
+  });
+}).catch((error) => {
+  console.error(`[SERVER] Failed to start: ${error.message}`);
+  process.exit(1);
+});
