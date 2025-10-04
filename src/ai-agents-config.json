@@ -1,0 +1,362 @@
+{
+  "aiAgents": {
+    "version": "1.0.0",
+    "lastUpdated": "2025-01-15",
+    "description": "AI Agent configurations for multi-model voting system",
+    
+    "votingPanels": {
+      "general": {
+        "name": "General Purpose Panel",
+        "description": "Balanced panel for general development tasks",
+        "consensusThreshold": 0.6,
+        "agents": [
+          {
+            "id": "reasoning-specialist",
+            "name": "Reasoning Specialist",
+            "provider": "openrouter",
+            "model": "deepseek/deepseek-r1-0528:free",
+            "specialty": "reasoning",
+            "weight": 1.2,
+            "description": "Excels at logical reasoning and problem-solving",
+            "strengths": ["complex analysis", "step-by-step thinking", "mathematical reasoning"]
+          },
+          {
+            "id": "coding-expert",
+            "name": "Coding Expert",
+            "provider": "openrouter", 
+            "model": "mistralai/devstral-small:free",
+            "specialty": "coding",
+            "weight": 1.3,
+            "description": "Specialized in software development and code quality",
+            "strengths": ["code generation", "debugging", "architecture", "best practices"]
+          },
+          {
+            "id": "analysis-agent",
+            "name": "Analysis Agent",
+            "provider": "openrouter",
+            "model": "microsoft/phi-4-reasoning:free",
+            "specialty": "analysis",
+            "weight": 1.1,
+            "description": "Strong analytical and reasoning capabilities",
+            "strengths": ["data analysis", "pattern recognition", "critical thinking"]
+          },
+          {
+            "id": "general-assistant",
+            "name": "General Assistant",
+            "provider": "openrouter",
+            "model": "qwen/qwen3-14b:free",
+            "specialty": "general",
+            "weight": 1.0,
+            "description": "Well-rounded model for general tasks",
+            "strengths": ["versatility", "balanced responses", "broad knowledge"]
+          },
+          {
+            "id": "conversation-expert",
+            "name": "Conversation Expert",
+            "provider": "openrouter",
+            "model": "meta-llama/llama-3.3-8b-instruct:free",
+            "specialty": "conversation",
+            "weight": 1.0,
+            "description": "Excellent at natural conversation and user interaction",
+            "strengths": ["natural language", "user experience", "clarity"]
+          },
+          {
+            "id": "gemini-multimodal",
+            "name": "Gemini Multimodal",
+            "provider": "gemini",
+            "model": "gemini-2.5-flash-preview-05-20",
+            "specialty": "multimodal",
+            "weight": 1.2,
+            "description": "Google's latest multimodal AI with advanced capabilities",
+            "strengths": ["multimodal reasoning", "large context", "fast responses", "versatility"]
+          }
+        ]
+      },
+      
+      "coding": {
+        "name": "Coding Specialist Panel",
+        "description": "Expert panel focused on software development",
+        "consensusThreshold": 0.7,
+        "agents": [
+          {
+            "id": "devstral-lead",
+            "name": "Devstral Lead",
+            "provider": "openrouter",
+            "model": "mistralai/devstral-small:free",
+            "specialty": "coding",
+            "weight": 1.5,
+            "description": "Primary coding specialist optimized for SWE-Bench",
+            "strengths": ["code generation", "debugging", "refactoring", "testing"]
+          },
+          {
+            "id": "reasoning-coder",
+            "name": "Reasoning Coder",
+            "provider": "openrouter",
+            "model": "deepseek/deepseek-r1-0528-qwen3-8b:free",
+            "specialty": "reasoning-coding",
+            "weight": 1.3,
+            "description": "Combines reasoning with coding expertise",
+            "strengths": ["algorithm design", "complex logic", "optimization"]
+          },
+          {
+            "id": "phi-developer",
+            "name": "Phi Developer",
+            "provider": "openrouter",
+            "model": "microsoft/phi-4-reasoning-plus:free",
+            "specialty": "development",
+            "weight": 1.2,
+            "description": "Microsoft's reasoning model for development",
+            "strengths": ["code analysis", "architecture", "best practices"]
+          },
+          {
+            "id": "qwen-coder",
+            "name": "Qwen Coder",
+            "provider": "openrouter",
+            "model": "qwen/qwen3-32b:free",
+            "specialty": "coding",
+            "weight": 1.1,
+            "description": "Large model with strong coding capabilities",
+            "strengths": ["complex projects", "multi-file editing", "documentation"]
+          },
+          {
+            "id": "gemini-coder",
+            "name": "Gemini Coder",
+            "provider": "gemini",
+            "model": "gemini-1.5-flash-latest",
+            "specialty": "coding",
+            "weight": 1.2,
+            "description": "Google's advanced model for coding tasks",
+            "strengths": ["code understanding", "large context", "multi-language support", "documentation"]
+          }
+        ]
+      },
+      
+      "reasoning": {
+        "name": "Reasoning Specialist Panel",
+        "description": "Expert panel for complex reasoning and analysis",
+        "consensusThreshold": 0.65,
+        "agents": [
+          {
+            "id": "deepseek-r1",
+            "name": "DeepSeek R1",
+            "provider": "openrouter",
+            "model": "deepseek/deepseek-r1-0528:free",
+            "specialty": "reasoning",
+            "weight": 1.5,
+            "description": "State-of-the-art reasoning model with 671B parameters",
+            "strengths": ["complex reasoning", "mathematical thinking", "logical analysis"]
+          },
+          {
+            "id": "phi-reasoner",
+            "name": "Phi Reasoner",
+            "provider": "openrouter",
+            "model": "microsoft/phi-4-reasoning:free",
+            "specialty": "reasoning",
+            "weight": 1.3,
+            "description": "Microsoft's specialized reasoning model",
+            "strengths": ["analytical thinking", "problem decomposition", "step-by-step logic"]
+          },
+          {
+            "id": "glm-thinker",
+            "name": "GLM Thinker",
+            "provider": "openrouter",
+            "model": "thudm/glm-z1-32b:free",
+            "specialty": "reasoning",
+            "weight": 1.2,
+            "description": "GLM's reasoning-focused model",
+            "strengths": ["creative reasoning", "pattern analysis", "inference"]
+          },
+          {
+            "id": "qwen-analyst",
+            "name": "Qwen Analyst",
+            "provider": "openrouter",
+            "model": "qwen/qwen3-30b-a3b:free",
+            "specialty": "analysis",
+            "weight": 1.1,
+            "description": "Large Qwen model for analytical tasks",
+            "strengths": ["data analysis", "trend identification", "synthesis"]
+          },
+          {
+            "id": "gemini-reasoner",
+            "name": "Gemini Reasoner",
+            "provider": "gemini",
+            "model": "gemini-1.5-flash-latest",
+            "specialty": "reasoning",
+            "weight": 1.1,
+            "description": "Google's fast model optimized for reasoning tasks",
+            "strengths": ["quick reasoning", "pattern recognition", "logical analysis", "efficiency"]
+          }
+        ]
+      },
+      
+      "premium": {
+        "name": "Premium Model Panel",
+        "description": "High-end models for critical decisions (requires paid API keys)",
+        "consensusThreshold": 0.8,
+        "agents": [
+          {
+            "id": "claude-opus",
+            "name": "Claude Opus 4",
+            "provider": "openrouter",
+            "model": "anthropic/claude-opus-4",
+            "specialty": "premium-general",
+            "weight": 1.8,
+            "description": "Anthropic's most powerful model",
+            "strengths": ["complex reasoning", "nuanced understanding", "high-quality output"],
+            "requiresPaid": true
+          },
+          {
+            "id": "claude-sonnet",
+            "name": "Claude Sonnet 4",
+            "provider": "openrouter",
+            "model": "anthropic/claude-sonnet-4",
+            "specialty": "premium-balanced",
+            "weight": 1.6,
+            "description": "High-performance Claude model",
+            "strengths": ["balanced performance", "efficiency", "reliability"],
+            "requiresPaid": true
+          },
+          {
+            "id": "gemini-pro",
+            "name": "Gemini 2.5 Pro",
+            "provider": "openrouter",
+            "model": "google/gemini-2.5-pro-preview",
+            "specialty": "premium-multimodal",
+            "weight": 1.7,
+            "description": "Google's latest multimodal model",
+            "strengths": ["multimodal reasoning", "large context", "advanced capabilities"],
+            "requiresPaid": true
+          },
+          {
+            "id": "gpt4o",
+            "name": "GPT-4o",
+            "provider": "openrouter",
+            "model": "openai/gpt-4o",
+            "specialty": "premium-general",
+            "weight": 1.6,
+            "description": "OpenAI's flagship model",
+            "strengths": ["general intelligence", "creativity", "problem-solving"],
+            "requiresPaid": true
+          },
+          {
+            "id": "o1-preview",
+            "name": "OpenAI o1 Preview",
+            "provider": "openrouter",
+            "model": "openai/o1-preview",
+            "specialty": "premium-reasoning",
+            "weight": 1.9,
+            "description": "OpenAI's reasoning-focused model",
+            "strengths": ["advanced reasoning", "complex problem-solving", "mathematical thinking"],
+            "requiresPaid": true
+          }
+        ]
+      },
+
+      "gemini": {
+        "name": "Google Gemini Panel",
+        "description": "Google's multimodal AI models with advanced capabilities",
+        "consensusThreshold": 0.6,
+        "agents": [
+          {
+            "id": "gemini-2-flash",
+            "name": "Gemini 2.0 Flash",
+            "provider": "gemini",
+            "model": "gemini-2.5-flash-preview-05-20",
+            "specialty": "multimodal",
+            "weight": 1.5,
+            "description": "Google's latest experimental multimodal model",
+            "strengths": ["multimodal reasoning", "fast responses", "large context", "versatility"]
+          },
+          {
+            "id": "gemini-15-pro",
+            "name": "Gemini 1.5 Pro",
+            "provider": "gemini",
+            "model": "gemini-2.0-flash",
+            "specialty": "general",
+            "weight": 1.3,
+            "description": "Google's most capable production model",
+            "strengths": ["complex reasoning", "large context", "high quality", "reliability"]
+          },
+          {
+            "id": "gemini-15-flash",
+            "name": "Gemini 1.5 Flash",
+            "provider": "gemini",
+            "model": "gemini-1.5-flash-latest",
+            "specialty": "speed",
+            "weight": 1.1,
+            "description": "Google's fast and efficient model",
+            "strengths": ["speed", "efficiency", "quick responses", "cost-effective"]
+          },
+          {
+            "id": "gemini-flash-8b",
+            "name": "Gemini Flash 8B",
+            "provider": "gemini",
+            "model": "gemini-1.5-flash-8b-latest",
+            "specialty": "lightweight",
+            "weight": 1.0,
+            "description": "Google's lightweight model for simple tasks",
+            "strengths": ["lightweight", "fast", "simple tasks", "efficient"]
+          }
+        ]
+      }
+    },
+    
+    "votingStrategies": {
+      "majority": {
+        "name": "Simple Majority",
+        "description": "Winner takes all based on most votes",
+        "threshold": 0.5
+      },
+      "consensus": {
+        "name": "Strong Consensus",
+        "description": "Requires strong agreement among agents",
+        "threshold": 0.7
+      },
+      "weighted": {
+        "name": "Weighted Voting",
+        "description": "Votes weighted by agent specialty and confidence",
+        "threshold": 0.6,
+        "useWeights": true
+      },
+      "unanimous": {
+        "name": "Unanimous Decision",
+        "description": "All agents must agree",
+        "threshold": 1.0
+      }
+    },
+    
+    "specialtyMappings": {
+      "coding": ["coding", "development", "programming", "software"],
+      "reasoning": ["reasoning", "analysis", "logic", "thinking"],
+      "general": ["general", "conversation", "versatile", "balanced"],
+      "premium": ["premium", "high-quality", "critical", "important"]
+    },
+    
+    "defaultConfigurations": {
+      "quickVoting": {
+        "panel": "general",
+        "strategy": "majority",
+        "maxAgents": 3,
+        "timeout": 30000
+      },
+      "thoroughVoting": {
+        "panel": "general", 
+        "strategy": "consensus",
+        "maxAgents": 5,
+        "timeout": 60000
+      },
+      "expertVoting": {
+        "panel": "coding",
+        "strategy": "weighted",
+        "maxAgents": 4,
+        "timeout": 45000
+      },
+      "premiumVoting": {
+        "panel": "premium",
+        "strategy": "consensus",
+        "maxAgents": 3,
+        "timeout": 90000
+      }
+    }
+  }
+}
